@@ -70,7 +70,7 @@ impl<'v> PyTryFrom<'v> for PyIterator {
         let value = value.into();
         unsafe {
             if ffi::PyIter_Check(value.as_ptr()) != 0 {
-                Ok(<PyIterator as PyTryFrom>::try_from_unchecked(value))
+                Ok(value.downcast_unchecked())
             } else {
                 Err(PyDowncastError::new(value, "Iterator"))
             }
@@ -78,7 +78,7 @@ impl<'v> PyTryFrom<'v> for PyIterator {
     }
 
     fn try_from_exact<V: Into<&'v PyAny>>(value: V) -> Result<&'v PyIterator, PyDowncastError<'v>> {
-        <PyIterator as PyTryFrom>::try_from(value)
+        value.into().downcast()
     }
 
     #[inline]
@@ -110,8 +110,6 @@ mod tests {
     use crate::exceptions::PyTypeError;
     use crate::gil::GILPool;
     use crate::types::{PyDict, PyList};
-    #[cfg(any(not(Py_LIMITED_API), Py_3_8))]
-    use crate::PyTryFrom;
     use crate::{Py, PyAny, Python, ToPyObject};
 
     #[test]
@@ -120,8 +118,14 @@ mod tests {
             let obj = vec![10, 20].to_object(py);
             let inst = obj.as_ref(py);
             let mut it = inst.iter().unwrap();
-            assert_eq!(10, it.next().unwrap().unwrap().extract().unwrap());
-            assert_eq!(20, it.next().unwrap().unwrap().extract().unwrap());
+            assert_eq!(
+                10_i32,
+                it.next().unwrap().unwrap().extract::<'_, i32>().unwrap()
+            );
+            assert_eq!(
+                20_i32,
+                it.next().unwrap().unwrap().extract::<'_, i32>().unwrap()
+            );
             assert!(it.next().is_none());
         });
     }
@@ -138,7 +142,10 @@ mod tests {
             let inst = obj.as_ref(py);
             let mut it = inst.iter().unwrap();
 
-            assert_eq!(10, it.next().unwrap().unwrap().extract().unwrap());
+            assert_eq!(
+                10_i32,
+                it.next().unwrap().unwrap().extract::<'_, i32>().unwrap()
+            );
         });
 
         Python::with_gil(|py| {
@@ -167,7 +174,10 @@ mod tests {
                 let inst = obj.as_ref(py);
                 let mut it = inst.iter().unwrap();
 
-                assert_eq!(10, it.next().unwrap().unwrap().extract().unwrap());
+                assert_eq!(
+                    10_i32,
+                    it.next().unwrap().unwrap().extract::<'_, i32>().unwrap()
+                );
                 assert!(it.next().unwrap().unwrap().is_none());
             }
             assert_eq!(count, none.get_refcnt(py));
@@ -212,8 +222,7 @@ def fibonacci(target):
     fn iterator_try_from() {
         Python::with_gil(|py| {
             let obj: Py<PyAny> = vec![10, 20].to_object(py).as_ref(py).iter().unwrap().into();
-            let iter: &PyIterator =
-                <PyIterator as PyTryFrom<'_>>::try_from(obj.as_ref(py)).unwrap();
+            let iter: &PyIterator = obj.downcast(py).unwrap();
             assert!(obj.is(iter));
         });
     }

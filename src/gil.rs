@@ -56,7 +56,7 @@ pub(crate) fn gil_is_acquired() -> bool {
 /// ```rust
 /// use pyo3::prelude::*;
 ///
-/// # fn main() -> PyResult<()>{
+/// # fn main() -> PyResult<()> {
 /// pyo3::prepare_freethreaded_python();
 /// Python::with_gil(|py| py.run("print('Hello World')", None, None))
 /// # }
@@ -101,10 +101,10 @@ pub fn prepare_freethreaded_python() {
 /// ```rust
 /// unsafe {
 ///     pyo3::with_embedded_python_interpreter(|py| {
-///        if let Err(e) = py.run("print('Hello World')", None, None){
-///            // We must make sure to not return a `PyErr`!
-///            e.print(py);
-///        }
+///         if let Err(e) = py.run("print('Hello World')", None, None) {
+///             // We must make sure to not return a `PyErr`!
+///             e.print(py);
+///         }
 ///     });
 /// }
 /// ```
@@ -151,6 +151,7 @@ where
 /// use pyo3::Python;
 ///
 /// {
+///     #[allow(deprecated)]
 ///     let gil_guard = Python::acquire_gil();
 ///     let py = gil_guard.python();
 /// } // GIL is released when gil_guard is dropped
@@ -498,7 +499,7 @@ mod tests {
     use super::{gil_is_acquired, GILPool, GIL_COUNT, OWNED_OBJECTS, POOL};
     use crate::{ffi, gil, AsPyPointer, IntoPyPointer, PyObject, Python, ToPyObject};
     use parking_lot::{const_mutex, Condvar, Mutex};
-    use std::ptr::NonNull;
+    use std::{ptr::NonNull, sync::atomic::Ordering};
 
     fn get_object(py: Python<'_>) -> PyObject {
         // Convenience function for getting a single unique object, using `new_pool` so as to leave
@@ -514,8 +515,20 @@ mod tests {
         OWNED_OBJECTS.with(|holder| holder.borrow().len())
     }
 
+    fn pool_not_dirty() -> bool {
+        !POOL.dirty.load(Ordering::SeqCst)
+    }
+
+    fn pool_dirty_with(
+        inc_refs: Vec<NonNull<ffi::PyObject>>,
+        dec_refs: Vec<NonNull<ffi::PyObject>>,
+    ) -> bool {
+        *POOL.pointer_ops.lock() == (inc_refs, dec_refs)
+    }
+
     #[test]
     fn test_owned() {
+        #[allow(deprecated)]
         let gil = Python::acquire_gil();
         let py = gil.python();
         let obj = get_object(py);
@@ -541,6 +554,7 @@ mod tests {
 
     #[test]
     fn test_owned_nested() {
+        #[allow(deprecated)]
         let gil = Python::acquire_gil();
         let py = gil.python();
         let obj = get_object(py);
@@ -574,51 +588,52 @@ mod tests {
 
     #[test]
     fn test_pyobject_drop_with_gil_decreases_refcnt() {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-        let obj = get_object(py);
-        // Ensure that obj does not get freed
-        let _ref = obj.clone_ref(py);
-        let obj_ptr = obj.as_ptr();
+        Python::with_gil(|py| {
+            let obj = get_object(py);
 
-        unsafe {
-            {
-                assert_eq!(owned_object_count(), 0);
-                assert_eq!(ffi::Py_REFCNT(obj_ptr), 2);
-            }
+            // Create a reference to drop with the GIL.
+            let reference = obj.clone_ref(py);
 
-            // With the GIL held, obj can be dropped immediately
-            drop(obj);
-            assert_eq!(ffi::Py_REFCNT(obj_ptr), 1);
-        }
+            assert_eq!(obj.get_refcnt(py), 2);
+            assert!(pool_not_dirty());
+
+            // With the GIL held, reference cound will be decreased immediately.
+            drop(reference);
+
+            assert_eq!(obj.get_refcnt(py), 1);
+            assert!(pool_not_dirty());
+        });
     }
 
     #[test]
+    #[cfg(not(target_arch = "wasm32"))] // We are building wasm Python with pthreads disabled
     fn test_pyobject_drop_without_gil_doesnt_decrease_refcnt() {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-        let obj = get_object(py);
-        // Ensure that obj does not get freed
-        let _ref = obj.clone_ref(py);
-        let obj_ptr = obj.as_ptr();
+        let obj = Python::with_gil(|py| {
+            let obj = get_object(py);
+            // Create a reference to drop without the GIL.
+            let reference = obj.clone_ref(py);
 
-        unsafe {
-            {
-                assert_eq!(owned_object_count(), 0);
-                assert_eq!(ffi::Py_REFCNT(obj_ptr), 2);
-            }
+            assert_eq!(obj.get_refcnt(py), 2);
+            assert!(pool_not_dirty());
 
-            // Without the GIL held, obj cannot be dropped until the next GIL acquire
-            drop(gil);
-            drop(obj);
-            assert_eq!(ffi::Py_REFCNT(obj_ptr), 2);
+            // Drop reference in a separate thread which doesn't have the GIL.
+            std::thread::spawn(move || drop(reference)).join().unwrap();
 
-            {
-                // Next time the GIL is acquired, the object is released
-                let _gil = Python::acquire_gil();
-                assert_eq!(ffi::Py_REFCNT(obj_ptr), 1);
-            }
-        }
+            // The reference count should not have changed (the GIL has always
+            // been held by this thread), it is remembered to release later.
+            assert_eq!(obj.get_refcnt(py), 2);
+            assert!(pool_dirty_with(
+                vec![],
+                vec![NonNull::new(obj.as_ptr()).unwrap()]
+            ));
+            obj
+        });
+
+        // Next time the GIL is acquired, the reference is released
+        Python::with_gil(|py| {
+            assert_eq!(obj.get_refcnt(py), 1);
+            assert!(pool_not_dirty());
+        });
     }
 
     #[test]
@@ -627,6 +642,7 @@ mod tests {
         let get_gil_count = || GIL_COUNT.with(|c| c.get());
 
         assert_eq!(get_gil_count(), 0);
+        #[allow(deprecated)]
         let gil = Python::acquire_gil();
         assert_eq!(get_gil_count(), 1);
 
@@ -640,6 +656,7 @@ mod tests {
         drop(pool);
         assert_eq!(get_gil_count(), 2);
 
+        #[allow(deprecated)]
         let gil2 = Python::acquire_gil();
         assert_eq!(get_gil_count(), 3);
 
@@ -656,6 +673,7 @@ mod tests {
     #[test]
     fn test_allow_threads() {
         // allow_threads should temporarily release GIL in PyO3's internal tracking too.
+        #[allow(deprecated)]
         let gil = Python::acquire_gil();
         let py = gil.python();
 
@@ -664,6 +682,7 @@ mod tests {
         py.allow_threads(move || {
             assert!(!gil_is_acquired());
 
+            #[allow(deprecated)]
             let gil = Python::acquire_gil();
             assert!(gil_is_acquired());
 
@@ -677,9 +696,11 @@ mod tests {
     #[test]
     fn dropping_gil_does_not_invalidate_references() {
         // Acquiring GIL for the second time should be safe - see #864
+        #[allow(deprecated)]
         let gil = Python::acquire_gil();
         let py = gil.python();
 
+        #[allow(deprecated)]
         let gil2 = Python::acquire_gil();
         let obj = py.eval("object()", None, None).unwrap();
         drop(gil2);
@@ -690,6 +711,7 @@ mod tests {
 
     #[test]
     fn test_clone_with_gil() {
+        #[allow(deprecated)]
         let gil = Python::acquire_gil();
         let py = gil.python();
 
@@ -743,7 +765,7 @@ mod tests {
             let obj: Arc<Py<PyAny>> = Arc::new(get_object(py));
             let thread_obj = Arc::clone(&obj);
 
-            let count = (&*obj).get_refcnt(py);
+            let count = obj.get_refcnt(py);
             println!(
                 "1: The object has been created and its reference count is {}",
                 count
@@ -850,6 +872,7 @@ mod tests {
         // update_counts can run arbitrary Python code during Py_DECREF.
         // if the locking is implemented incorrectly, it will deadlock.
 
+        #[allow(deprecated)]
         let gil = Python::acquire_gil();
         let obj = get_object(gil.python());
 

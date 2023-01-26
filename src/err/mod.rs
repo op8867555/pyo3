@@ -18,6 +18,7 @@ mod impls;
 
 pub use err_state::PyErrArguments;
 use err_state::{boxed_args, PyErrState, PyErrStateNormalized};
+#[cfg(feature = "experimental-inspect")]
 use crate::inspect::types::TypeInfo;
 
 /// Represents a Python exception.
@@ -54,6 +55,8 @@ pub struct PyDowncastError<'a> {
 }
 
 impl<'a> PyDowncastError<'a> {
+    /// Create a new `PyDowncastError` representing a failure to convert the object
+    /// `from` into the type named in `to`.
     pub fn new(from: &'a PyAny, to: impl Into<Cow<'static, str>>) -> Self {
         PyDowncastError {
             from,
@@ -447,8 +450,8 @@ impl PyErr {
 
     /// Returns true if the current exception is instance of `T`.
     #[inline]
-    pub fn is_instance(&self, py: Python<'_>, typ: &PyType) -> bool {
-        unsafe { ffi::PyErr_GivenExceptionMatches(self.type_ptr(py), typ.as_ptr()) != 0 }
+    pub fn is_instance(&self, py: Python<'_>, ty: &PyAny) -> bool {
+        unsafe { ffi::PyErr_GivenExceptionMatches(self.type_ptr(py), ty.as_ptr()) != 0 }
     }
 
     /// Returns true if the current exception is instance of `T`.
@@ -464,16 +467,38 @@ impl PyErr {
     /// This is the opposite of `PyErr::fetch()`.
     #[inline]
     pub fn restore(self, py: Python<'_>) {
-        let (ptype, pvalue, ptraceback) = self
-            .state
-            .into_inner()
-            .expect("Cannot restore a PyErr while normalizing it")
-            .into_ffi_tuple(py);
+        let state = match self.state.into_inner() {
+            Some(state) => state,
+            // Safety: restore takes `self` by value so nothing else is accessing this err
+            // and the invariant is that state is always defined except during make_normalized
+            None => unsafe { std::hint::unreachable_unchecked() },
+        };
+
+        let (ptype, pvalue, ptraceback) = state.into_ffi_tuple(py);
         unsafe { ffi::PyErr_Restore(ptype, pvalue, ptraceback) }
     }
 
     /// Issues a warning message.
-    /// May return a `PyErr` if warnings-as-errors is enabled.
+    ///
+    /// May return an `Err(PyErr)` if warnings-as-errors is enabled.
+    ///
+    /// Equivalent to `warnings.warn()` in Python.
+    ///
+    /// The `category` should be one of the `Warning` classes available in
+    /// [`pyo3::exceptions`](crate::exceptions), or a subclass.  The Python
+    /// object can be retrieved using [`Python::get_type()`].
+    ///
+    /// Example:
+    /// ```rust
+    /// # use pyo3::prelude::*;
+    /// # fn main() -> PyResult<()> {
+    /// Python::with_gil(|py| {
+    ///     let user_warning = py.get_type::<pyo3::exceptions::PyUserWarning>();
+    ///     PyErr::warn(py, user_warning, "I am warning you", 0)?;
+    ///     Ok(())
+    /// })
+    /// # }
+    /// ```
     pub fn warn(py: Python<'_>, category: &PyAny, message: &str, stacklevel: i32) -> PyResult<()> {
         let message = CString::new(message)?;
         unsafe {
@@ -483,6 +508,49 @@ impl PyErr {
                     category.as_ptr(),
                     message.as_ptr(),
                     stacklevel as ffi::Py_ssize_t,
+                ),
+            )
+        }
+    }
+
+    /// Issues a warning message, with more control over the warning attributes.
+    ///
+    /// May return a `PyErr` if warnings-as-errors is enabled.
+    ///
+    /// Equivalent to `warnings.warn_explicit()` in Python.
+    ///
+    /// The `category` should be one of the `Warning` classes available in
+    /// [`pyo3::exceptions`](crate::exceptions), or a subclass.
+    pub fn warn_explicit(
+        py: Python<'_>,
+        category: &PyAny,
+        message: &str,
+        filename: &str,
+        lineno: i32,
+        module: Option<&str>,
+        registry: Option<&PyAny>,
+    ) -> PyResult<()> {
+        let message = CString::new(message)?;
+        let filename = CString::new(filename)?;
+        let module = module.map(CString::new).transpose()?;
+        let module_ptr = match module {
+            None => std::ptr::null_mut(),
+            Some(s) => s.as_ptr(),
+        };
+        let registry: *mut ffi::PyObject = match registry {
+            None => std::ptr::null_mut(),
+            Some(obj) => obj.as_ptr(),
+        };
+        unsafe {
+            error_on_minusone(
+                py,
+                ffi::PyErr_WarnExplicit(
+                    category.as_ptr(),
+                    message.as_ptr(),
+                    filename.as_ptr(),
+                    lineno,
+                    module_ptr,
+                    registry,
                 ),
             )
         }
@@ -590,57 +658,6 @@ impl PyErr {
             }
         }
     }
-
-    /// Deprecated name for [`PyErr::get_type`].
-    #[deprecated(
-        since = "0.16.0",
-        note = "Use err.get_type(py) instead of err.ptype(py)"
-    )]
-    pub fn ptype<'py>(&'py self, py: Python<'py>) -> &'py PyType {
-        self.get_type(py)
-    }
-
-    /// Deprecated name for [`PyErr::value`].
-    #[deprecated(since = "0.16.0", note = "Use err.value(py) instead of err.pvalue(py)")]
-    pub fn pvalue<'py>(&'py self, py: Python<'py>) -> &'py PyBaseException {
-        self.value(py)
-    }
-
-    /// Deprecated name for [`PyErr::traceback`].
-    #[deprecated(
-        since = "0.16.0",
-        note = "Use err.traceback(py) instead of err.ptraceback(py)"
-    )]
-    pub fn ptraceback<'py>(&'py self, py: Python<'py>) -> Option<&'py PyTraceback> {
-        self.traceback(py)
-    }
-
-    /// Deprecated name for [`PyErr::value`].
-    #[deprecated(
-        since = "0.16.0",
-        note = "Use err.value(py) instead of err.instance(py)"
-    )]
-    pub fn instance<'py>(&'py self, py: Python<'py>) -> &'py PyBaseException {
-        self.value(py)
-    }
-
-    /// Deprecated name for [`PyErr::from_value`].
-    #[deprecated(
-        since = "0.16.0",
-        note = "Use err.from_value(py, obj) instead of err.from_instance(py, obj)"
-    )]
-    pub fn from_instance(value: &PyAny) -> PyErr {
-        PyErr::from_value(value)
-    }
-
-    /// Deprecated name for [`PyErr::into_value`].
-    #[deprecated(
-        since = "0.16.0",
-        note = "Use err.into_value(py) instead of err.into_instance(py)"
-    )]
-    pub fn into_instance(self, py: Python<'_>) -> Py<PyBaseException> {
-        self.into_value(py)
-    }
 }
 
 impl std::fmt::Debug for PyErr {
@@ -677,6 +694,7 @@ impl IntoPy<PyObject> for PyErr {
         self.into_value(py).into()
     }
 
+    #[cfg(feature = "experimental-inspect")]
     fn type_output() -> TypeInfo {
         TypeInfo::Builtin("Exception")
     }
@@ -693,6 +711,7 @@ impl<'a> IntoPy<PyObject> for &'a PyErr {
         self.clone_ref(py).into_py(py)
     }
 
+    #[cfg(feature = "experimental-inspect")]
     fn type_output() -> TypeInfo {
         <PyErr>::type_output()
     }
@@ -768,7 +787,7 @@ fn exceptions_must_derive_from_base_exception(py: Python<'_>) -> PyErr {
 mod tests {
     use super::PyErrState;
     use crate::exceptions;
-    use crate::{AsPyPointer, PyErr, Python};
+    use crate::{PyErr, Python};
 
     #[test]
     fn no_error() {
@@ -805,12 +824,12 @@ mod tests {
 
     #[test]
     fn set_typeerror() {
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-        let err: PyErr = exceptions::PyTypeError::new_err(());
-        err.restore(py);
-        assert!(PyErr::occurred(py));
-        drop(PyErr::fetch(py));
+        Python::with_gil(|py| {
+            let err: PyErr = exceptions::PyTypeError::new_err(());
+            err.restore(py);
+            assert!(PyErr::occurred(py));
+            drop(PyErr::fetch(py));
+        });
     }
 
     #[test]
@@ -914,27 +933,56 @@ mod tests {
         });
     }
 
-    #[allow(deprecated)]
     #[test]
-    fn deprecations() {
-        let err = exceptions::PyValueError::new_err("an error");
+    fn warnings() {
+        // Note: although the warning filter is interpreter global, keeping the
+        // GIL locked should prevent effects to be visible to other testing
+        // threads.
         Python::with_gil(|py| {
-            assert_eq!(err.ptype(py).as_ptr(), err.get_type(py).as_ptr());
-            assert_eq!(err.pvalue(py).as_ptr(), err.value(py).as_ptr());
-            assert_eq!(err.instance(py).as_ptr(), err.value(py).as_ptr());
-            assert_eq!(
-                err.ptraceback(py).map(|t| t.as_ptr()),
-                err.traceback(py).map(|t| t.as_ptr())
-            );
+            let cls = py.get_type::<exceptions::PyUserWarning>();
 
-            assert_eq!(
-                err.clone_ref(py).into_instance(py).as_ref(py).as_ptr(),
-                err.value(py).as_ptr()
-            );
-            assert_eq!(
-                PyErr::from_instance(err.value(py)).value(py).as_ptr(),
-                err.value(py).as_ptr()
-            );
+            // Reset warning filter to default state
+            let warnings = py.import("warnings").unwrap();
+            warnings.call_method0("resetwarnings").unwrap();
+
+            // First, test with ignoring the warning
+            warnings
+                .call_method1("simplefilter", ("ignore", cls))
+                .unwrap();
+            PyErr::warn(py, cls, "I am warning you", 0).unwrap();
+
+            // Test with raising
+            warnings
+                .call_method1("simplefilter", ("error", cls))
+                .unwrap();
+            PyErr::warn(py, cls, "I am warning you", 0).unwrap_err();
+
+            // Test with explicit module and specific filter
+            warnings.call_method0("resetwarnings").unwrap();
+            warnings
+                .call_method1("simplefilter", ("ignore", cls))
+                .unwrap();
+            warnings
+                .call_method1("filterwarnings", ("error", "", cls, "pyo3test"))
+                .unwrap();
+
+            // This has the wrong module and will not raise
+            PyErr::warn(py, cls, "I am warning you", 0).unwrap();
+
+            let err =
+                PyErr::warn_explicit(py, cls, "I am warning you", "pyo3test.py", 427, None, None)
+                    .unwrap_err();
+            assert!(err
+                .value(py)
+                .getattr("args")
+                .unwrap()
+                .get_item(0)
+                .unwrap()
+                .eq("I am warning you")
+                .unwrap());
+
+            // Finally, reset filter again
+            warnings.call_method0("resetwarnings").unwrap();
         });
     }
 }

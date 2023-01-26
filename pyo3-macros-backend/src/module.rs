@@ -84,7 +84,7 @@ pub fn pymodule_impl(
             /// the module.
             #[export_name = #pyinit_symbol]
             pub unsafe extern "C" fn init() -> *mut #krate::ffi::PyObject {
-                DEF.module_init()
+                #krate::impl_::trampoline::module_init(|py| DEF.make_module(py))
             }
         }
 
@@ -122,7 +122,7 @@ pub fn process_functions_in_module(
                 let name = &func.sig.ident;
                 let statements: Vec<syn::Stmt> = syn::parse_quote! {
                     #wrapped_function
-                    #module_name.add_function(#krate::impl_::pyfunction::wrap_pyfunction(&#name::DEF, #module_name)?)?;
+                    #module_name.add_function(#krate::impl_::pyfunction::wrap_pyfunction_impl(&#name::DEF, #module_name)?)?;
                 };
                 stmts.extend(statements);
             }

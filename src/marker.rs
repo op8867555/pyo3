@@ -110,7 +110,7 @@
 //! impl !Ungil for ffi::PyObject {}
 //!
 //! // `Py` wraps it in  a safe api, so this is OK
-//! unsafe impl <T> Ungil for Py<T> {}
+//! unsafe impl<T> Ungil for Py<T> {}
 //! # }
 //! ```
 //!
@@ -288,6 +288,10 @@ impl Python<'_> {
     #[cfg_attr(PyPy, doc = "`prepare_freethreaded_python`")]
     /// for details.
     ///
+    /// If the current thread does not yet have a Python "thread state" associated with it,
+    /// a new one will be automatically created before `F` is executed and destroyed after `F`
+    /// completes.
+    ///
     /// # Panics
     ///
     /// - If the [`auto-initialize`] feature is not enabled and the Python interpreter is not
@@ -379,9 +383,18 @@ impl<'py> Python<'py> {
     /// allowed, and will not deadlock. However, [`GILGuard`]s must be dropped in the reverse order
     /// to acquisition. If PyO3 detects this order is not maintained, it will panic when the out-of-order drop occurs.
     ///
+    /// # Deprecation
+    ///
+    /// This API has been deprecated for several reasons:
+    /// - GIL drop order tracking has turned out to be [error prone](https://github.com/PyO3/pyo3/issues/1683).
+    /// With a scoped API like `Python::with_gil`, these are always dropped in the correct order.
+    /// - It promotes passing and keeping the GILGuard around, which is almost always not what you actually want.
+    ///
     /// [`PyGILState_Ensure`]: crate::ffi::PyGILState_Ensure
     /// [`auto-initialize`]: https://pyo3.rs/main/features.html#auto-initialize
     #[inline]
+    // Once removed, we can remove GILGuard's drop tracking.
+    #[deprecated(since = "0.17.0", note = "prefer Python::with_gil")]
     pub fn acquire_gil() -> GILGuard {
         GILGuard::acquire()
     }
@@ -583,6 +596,7 @@ impl<'py> Python<'py> {
     }
 
     /// Gets the Python type object for type `T`.
+    #[inline]
     pub fn get_type<T>(self) -> &'py PyType
     where
         T: PyTypeInfo,
@@ -782,7 +796,7 @@ impl<'py> Python<'py> {
     /// # #![allow(dead_code)] // this example is quite impractical to test
     /// use pyo3::prelude::*;
     ///
-    /// # fn main(){
+    /// # fn main() {
     /// #[pyfunction]
     /// fn loop_forever(py: Python<'_>) -> PyResult<()> {
     ///     loop {
@@ -1010,13 +1024,10 @@ mod tests {
         let state = unsafe { crate::ffi::PyGILState_Check() };
         assert_eq!(state, GIL_NOT_HELD);
 
-        {
-            let gil = Python::acquire_gil();
-            let _py = gil.python();
+        Python::with_gil(|_| {
             let state = unsafe { crate::ffi::PyGILState_Check() };
             assert_eq!(state, GIL_HELD);
-            drop(gil);
-        }
+        });
 
         let state = unsafe { crate::ffi::PyGILState_Check() };
         assert_eq!(state, GIL_NOT_HELD);

@@ -12,21 +12,27 @@ pub use self::code::PyCode;
 pub use self::complex::PyComplex;
 #[cfg(not(Py_LIMITED_API))]
 pub use self::datetime::{
-    PyDate, PyDateAccess, PyDateTime, PyDelta, PyDeltaAccess, PyTime, PyTimeAccess, PyTzInfo,
-    PyTzInfoAccess,
+    timezone_utc, PyDate, PyDateAccess, PyDateTime, PyDelta, PyDeltaAccess, PyTime, PyTimeAccess,
+    PyTzInfo, PyTzInfoAccess,
 };
 pub use self::dict::{IntoPyDict, PyDict};
+#[cfg(not(PyPy))]
+pub use self::dict::{PyDictItems, PyDictKeys, PyDictValues};
 pub use self::floatob::PyFloat;
 #[cfg(all(not(Py_LIMITED_API), not(PyPy)))]
 pub use self::frame::PyFrame;
 pub use self::frozenset::PyFrozenSet;
-pub use self::function::{PyCFunction, PyFunction};
+pub use self::function::PyCFunction;
+#[cfg(all(not(Py_LIMITED_API), not(PyPy)))]
+pub use self::function::PyFunction;
 pub use self::iterator::PyIterator;
 pub use self::list::PyList;
 pub use self::mapping::PyMapping;
 pub use self::module::PyModule;
 pub use self::num::PyLong;
 pub use self::num::PyLong as PyInt;
+#[cfg(not(PyPy))]
+pub use self::pysuper::PySuper;
 pub use self::sequence::PySequence;
 pub use self::set::PySet;
 pub use self::slice::{PySlice, PySliceIndices};
@@ -51,7 +57,7 @@ pub use self::typeobject::PyType;
 ///
 /// # pub fn main() -> PyResult<()> {
 /// Python::with_gil(|py| {
-///     let dict: &PyDict = py.eval("{'a':'b', 'c':'d'}", None, None)?.cast_as()?;
+///     let dict: &PyDict = py.eval("{'a':'b', 'c':'d'}", None, None)?.downcast()?;
 ///
 ///     for (key, value) in dict {
 ///         println!("key: {}, value: {}", key, value);
@@ -207,7 +213,7 @@ macro_rules! pyobject_native_type_extract {
     ($name:ty $(;$generics:ident)*) => {
         impl<'py, $($generics,)*> $crate::FromPyObject<'py> for &'py $name {
             fn extract(obj: &'py $crate::PyAny) -> $crate::PyResult<Self> {
-                $crate::PyTryFrom::try_from(obj).map_err(::std::convert::Into::into)
+                obj.downcast().map_err(::std::convert::Into::into)
             }
         }
     }
@@ -238,7 +244,7 @@ macro_rules! pyobject_native_type_sized {
             type BaseNativeType = $name;
             type ThreadChecker = $crate::impl_::pyclass::ThreadCheckerStub<$crate::PyObject>;
             type Initializer = $crate::pyclass_init::PyNativeTypeInitializer<Self>;
-            type PyClassMutability = $crate::pycell::ImmutableClass;
+            type PyClassMutability = $crate::pycell::impl_::ImmutableClass;
         }
     }
 }
@@ -273,12 +279,14 @@ mod frame;
 mod frozenset;
 mod function;
 mod iterator;
-mod list;
+pub(crate) mod list;
 mod mapping;
 mod module;
 mod num;
+#[cfg(not(PyPy))]
+mod pysuper;
 mod sequence;
-mod set;
+pub(crate) mod set;
 mod slice;
 mod string;
 mod traceback;

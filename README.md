@@ -68,7 +68,7 @@ name = "string_sum"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.16.5", features = ["extension-module"] }
+pyo3 = { version = "0.18.0", features = ["extension-module"] }
 ```
 
 **`src/lib.rs`**
@@ -116,6 +116,8 @@ maturin init --bindings pyo3
 maturin develop
 ```
 
+If you want to be able to run `cargo test` or use this project in a Cargo workspace and are running into linker issues, there are some workarounds in [the FAQ](https://pyo3.rs/latest/faq.html#i-cant-run-cargo-test-or-i-cant-build-in-a-cargo-workspace-im-having-linker-issues-like-symbol-not-found-or-undefined-reference-to-_pyexc_systemerror).
+
 As well as with `maturin`, it is possible to build using [`setuptools-rust`](https://github.com/PyO3/setuptools-rust) or [manually](https://pyo3.rs/latest/building_and_distribution.html#manual-builds). Both offer more flexibility than `maturin` but require more configuration to get started.
 
 ### Using Python from Rust
@@ -128,11 +130,14 @@ To install the Python shared library on Ubuntu:
 sudo apt install python3-dev
 ```
 
+To install the Python shared library on RPM based distributions (e.g. Fedora, Red Hat, SuSE), install the `python3-devel` package.
+
+
 Start a new project with `cargo new` and add  `pyo3` to the `Cargo.toml` like this:
 
 ```toml
 [dependencies.pyo3]
-version = "0.16.5"
+version = "0.18.0"
 features = ["auto-initialize"]
 ```
 
@@ -186,7 +191,7 @@ about this topic.
 - [fastuuid](https://github.com/thedrow/fastuuid/) _Python bindings to Rust's UUID library_
 - [wasmer-python](https://github.com/wasmerio/wasmer-python) _Python library to run WebAssembly binaries_
 - [mocpy](https://github.com/cds-astro/mocpy) _Astronomical Python library offering data structures for describing any arbitrary coverage regions on the unit sphere_
-- [tokenizers](https://github.com/huggingface/tokenizers/tree/master/bindings/python) _Python bindings to the Hugging Face tokenizers (NLP) written in Rust_
+- [tokenizers](https://github.com/huggingface/tokenizers/tree/main/bindings/python) _Python bindings to the Hugging Face tokenizers (NLP) written in Rust_
 - [pyre](https://github.com/Project-Dream-Weaver/pyre-http) _Fast Python HTTP server written in Rust_
 - [jsonschema-rs](https://github.com/Stranger6667/jsonschema-rs/tree/master/bindings/python) _Fast JSON Schema validation library_
 - [css-inline](https://github.com/Stranger6667/css-inline/tree/master/bindings/python) _CSS inlining for Python implemented in Rust_
@@ -199,6 +204,11 @@ about this topic.
     - Quite easy to follow as there's not much code.
 - [polars](https://github.com/pola-rs/polars) _Fast multi-threaded DataFrame library in Rust | Python | Node.js_
 - [rust-python-coverage](https://github.com/cjermain/rust-python-coverage) _Example PyO3 project with automated test coverage for Rust and Python_
+- [forust](https://github.com/jinlow/forust) _A lightweight gradient boosted decision tree library written in Rust._
+- [ril-py](https://github.com/Cryptex-github/ril-py) _A performant and high-level image processing library for Python written in Rust_
+- [fastbloom](https://github.com/yankun1992/fastbloom) _A fast [bloom filter](https://github.com/yankun1992/fastbloom#BloomFilter) | [counting bloom filter](https://github.com/yankun1992/fastbloom#countingbloomfilter) implemented by Rust for Rust and Python!_
+- [river](https://github.com/online-ml/river) _Online machine learning in python, the computationally heavy statistics algorithms are implemented in Rust_
+- [feos](https://github.com/feos-org/feos) _Lightning fast thermodynamic modeling in Rust with fully developed Python interface_
 
 ## Articles and other media
 
@@ -229,3 +239,5 @@ If you don't have time to contribute yourself but still wish to support the proj
 
 PyO3 is licensed under the [Apache-2.0 license](https://opensource.org/licenses/APACHE-2.0).
 Python is licensed under the [Python License](https://docs.python.org/3/license.html).
+
+<a href="https://www.netlify.com"> <img src="https://www.netlify.com/v3/img/components/netlify-color-accent.svg" alt="Deploys by Netlify" /> </a>

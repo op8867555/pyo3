@@ -30,6 +30,11 @@ use syn::{parse::Nothing, parse_macro_input};
 ///
 /// For more on creating Python modules see the [module section of the guide][1].
 ///
+/// Due to technical limitations on how `#[pymodule]` is implemented, a function marked
+/// `#[pymodule]` cannot have a module with the same name in the same scope. (The
+/// `#[pymodule]` implementation generates a hidden module with the same name containing
+/// metadata about the module, which is used by `wrap_pymodule!`).
+///
 /// [1]: https://pyo3.rs/latest/module.html
 #[proc_macro_attribute]
 pub fn pymodule(args: TokenStream, input: TokenStream) -> TokenStream {
@@ -56,44 +61,6 @@ pub fn pymodule(args: TokenStream, input: TokenStream) -> TokenStream {
     .into()
 }
 
-/// A proc macro used to implement Python's [dunder methods][1].
-///
-/// This attribute is required on blocks implementing [`PyObjectProtocol`][2],
-/// [`PyNumberProtocol`][3], [`PyGCProtocol`][4] and [`PyIterProtocol`][5].
-///
-/// [1]: https://docs.python.org/3/reference/datamodel.html#special-method-names
-/// [2]: ../class/basic/trait.PyObjectProtocol.html
-/// [3]: ../class/number/trait.PyNumberProtocol.html
-/// [4]: ../class/gc/trait.PyGCProtocol.html
-/// [5]: ../class/iter/trait.PyIterProtocol.html
-#[proc_macro_attribute]
-#[cfg(feature = "pyproto")]
-pub fn pyproto(_: TokenStream, input: TokenStream) -> TokenStream {
-    let mut ast = parse_macro_input!(input as syn::ItemImpl);
-    let expanded = pyo3_macros_backend::build_py_proto(&mut ast).unwrap_or_compile_error();
-
-    quote!(
-        #ast
-        #expanded
-    )
-    .into()
-}
-
-/// A proc macro used to expose Rust structs and fieldless enums as Python objects.
-///
-#[cfg_attr(docsrs, cfg_attr(docsrs, doc = include_str!("../docs/pyclass_parameters.md")))]
-///
-/// For more on creating Python classes,
-/// see the [class section of the guide][1].
-///
-/// [1]: https://pyo3.rs/latest/class.html
-/// [params-1]: ../prelude/struct.PyAny.html
-/// [params-2]: https://en.wikipedia.org/wiki/Free_list
-/// [params-3]: std::marker::Send
-/// [params-4]: std::rc::Rc
-/// [params-5]: std::sync::Arc
-/// [params-6]: https://docs.python.org/3/library/weakref.html
-/// [params-mapping]: https://pyo3.rs/latest/class/protocols.html#mapping--sequence-types
 #[proc_macro_attribute]
 pub fn pyclass(attr: TokenStream, input: TokenStream) -> TokenStream {
     use syn::Item;
@@ -120,8 +87,8 @@ pub fn pyclass(attr: TokenStream, input: TokenStream) -> TokenStream {
 /// | [`#[staticmethod]`][6]| Defines the method as a staticmethod, like Python's `@staticmethod` decorator.|
 /// | [`#[classmethod]`][7]  | Defines the method as a classmethod, like Python's `@classmethod` decorator.|
 /// | [`#[classattr]`][9]  | Defines a class variable. |
-/// | [`#[args]`][10]  | Define a method's default arguments and allows the function to receive `*args` and `**kwargs`.  |
-/// | <nobr>[`#[pyo3(<option> = <value>)`][pyo3-method-options]<nobr> | Any of the `#[pyo3]` options supported on [`macro@pyfunction`]. |
+/// | [`#[args]`][10]  | Deprecated way to define a method's default arguments and allows the function to receive `*args` and `**kwargs`. Use `#[pyo3(signature = (...))]` instead. |
+/// | <nobr>[`#[pyo3(<option> = <value>)`][pyo3-method-options]</nobr> | Any of the `#[pyo3]` options supported on [`macro@pyfunction`]. |
 ///
 /// For more on creating class methods,
 /// see the [class section of the guide][1].

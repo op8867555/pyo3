@@ -1,4 +1,4 @@
-# Memory Management
+# Memory management
 
 Rust and Python have very different notions of memory management.  Rust has
 a strict memory model with concepts of ownership, borrowing, and lifetimes,
@@ -13,7 +13,7 @@ PyO3 bridges the Rust and Python memory models with two different strategies for
 accessing memory allocated on Python's heap from inside Rust.  These are
 GIL-bound, or "owned" references, and GIL-independent `Py<Any>` smart pointers.
 
-## GIL-bound Memory
+## GIL-bound memory
 
 PyO3's GIL-bound, "owned references" (`&PyAny` etc.) make PyO3 more ergonomic to
 use by ensuring that their lifetime can never be longer than the duration the
@@ -119,14 +119,23 @@ dropped you do not retain access to any owned references created after the
 [documentation for `Python::new_pool()`]({{#PYO3_DOCS_URL}}/pyo3/prelude/struct.Python.html#method.new_pool)
 for more information on safety.
 
-## GIL-independent Memory
+This memory management can also be applicable when writing extension modules.
+`#[pyfunction]` and `#[pymethods]` will create a `GILPool` which lasts the entire
+function call, releasing objects when the function returns. Most functions only create
+a few objects, meaning this doesn't have a significant impact. Occasionally functions
+with long complex loops may need to use `Python::new_pool` as shown above.
+
+This behavior may change in future, see [issue #1056](https://github.com/PyO3/pyo3/issues/1056).
+
+## GIL-independent memory
 
 Sometimes we need a reference to memory on Python's heap that can outlive the
-GIL.  Python's `Py<PyAny>` is analogous to `Rc<T>`, but for variables whose
+GIL.  Python's `Py<PyAny>` is analogous to `Arc<T>`, but for variables whose
 memory is allocated on Python's heap.  Cloning a `Py<PyAny>` increases its
-internal reference count just like cloning `Rc<T>`.  The smart pointer can
-outlive the GIL from which it was created.  It isn't magic, though.  We need to
-reacquire the GIL to access the memory pointed to by the `Py<PyAny>`.
+internal reference count just like cloning `Arc<T>`.  The smart pointer can
+outlive the "GIL is held" period in which it was created.  It isn't magic,
+though.  We need to reacquire the GIL to access the memory pointed to by the
+`Py<PyAny>`.
 
 What happens to the memory when the last `Py<PyAny>` is dropped and its
 reference count reaches zero?  It depends whether or not we are holding the GIL.

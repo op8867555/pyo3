@@ -37,7 +37,7 @@ pub(crate) fn generate_class_inspection(
             .or_else(|| field.ident.as_ref().map(|it| Literal::string(&*it.to_string())));
 
         if let Some(name) = name {
-            if options.get {
+            if options.get.is_some() {
                 fields.push(quote! {
                     &_pyo3::inspect::fields::FieldInfo {
                         name: #name,
@@ -48,7 +48,7 @@ pub(crate) fn generate_class_inspection(
                 });
             }
 
-            if options.set {
+            if options.set.is_some() {
                 fields.push(quote! {
                     &_pyo3::inspect::fields::FieldInfo {
                         name: #name,
@@ -151,7 +151,7 @@ pub(crate) fn generate_fields_inspection(
         .unwrap_or_else(|| cls.to_token_stream());
 
     let mut args: Vec<TokenStream> = vec![];
-    for arg in &field.spec.args {
+    for arg in &field.spec.signature.arguments {
         let name = Literal::string(&*arg.name.to_string());
         let typ = generate_type(arg.ty)
             .map(|it| it.to_token_stream())

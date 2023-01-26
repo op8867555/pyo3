@@ -10,16 +10,12 @@
 mod utils;
 
 mod attributes;
-#[cfg(feature = "pyproto")]
-mod defs;
 mod deprecations;
 mod frompyobject;
 mod konst;
 mod method;
 mod module;
 mod params;
-#[cfg(feature = "pyproto")]
-mod proto_method;
 mod pyclass;
 mod pyfunction;
 mod pyimpl;
@@ -33,6 +29,4 @@ pub use module::{process_functions_in_module, pymodule_impl, PyModuleOptions};
 pub use pyclass::{build_py_class, build_py_enum, PyClassArgs};
 pub use pyfunction::{build_py_function, PyFunctionOptions};
 pub use pyimpl::{build_py_methods, PyClassMethodsType};
-#[cfg(feature = "pyproto")]
-pub use pyproto::build_py_proto;
 pub use utils::get_doc;

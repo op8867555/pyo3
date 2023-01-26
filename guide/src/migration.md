@@ -3,8 +3,127 @@
 This guide can help you upgrade code through breaking changes from one PyO3 version to the next.
 For a detailed list of all changes, see the [CHANGELOG](changelog.md).
 
+## from 0.17.* to 0.18
+
+### Required arguments after `Option<_>` arguments will no longer be automatically inferred
+
+In `#[pyfunction]` and `#[pymethods]`, if a "required" function input such as `i32` came after an `Option<_>` input, then the `Option<_>` would be implicitly treated as required. (All trailing `Option<_>` arguments were treated as optional with a default value of `None`).
+
+Starting with PyO3 0.18, this is deprecated and a future PyO3 version will require a [`#[pyo3(signature = (...))]` option](./function/signature.md) to explicitly declare the programmer's intention.
+
+Before, x in the below example would be required to be passed from Python code:
+
+```rust,compile_fail
+# #![allow(dead_code)]
+# use pyo3::prelude::*;
+
+#[pyfunction]
+fn required_argument_after_option(x: Option<i32>, y: i32) { }
+```
+
+After, specify the intended Python signature explicitly:
+
+```rust
+# #![allow(dead_code)]
+# use pyo3::prelude::*;
+
+// If x really was intended to be required
+#[pyfunction(signature = (x, y))]
+fn required_argument_after_option_a(x: Option<i32>, y: i32) { }
+
+// If x was intended to be optional, y needs a default too
+#[pyfunction(signature = (x=None, y=0))]
+fn required_argument_after_option_b(x: Option<i32>, y: i32) { }
+```
+
+### `__text_signature__` is now automatically generated for `#[pyfunction]` and `#[pymethods]`
+
+The [`#[pyo3(text_signature = "...")]` option](./function/signature.md#making-the-function-signature-available-to-python) was previously the only supported way to set the `__text_signature__` attribute on generated Python functions.
+
+PyO3 is now able to automatically populate `__text_signature__` for all functions automatically based on their Rust signature (or the [new `#[pyo3(signature = (...))]` option](./function/signature.md)). These automatically-generated `__text_signature__` values will currently only render `...` for all default values. Many `#[pyo3(text_signature = "...")]` options can be removed from functions when updating to PyO3 0.18, however in cases with default values a manual implementation may still be preferred for now.
+
+As examples:
+
+```rust
+# use pyo3::prelude::*;
+
+// The `text_signature` option here is no longer necessary, as PyO3 will automatically
+// generate exactly the same value.
+#[pyfunction(text_signature = "(a, b, c)")]
+fn simple_function(a: i32, b: i32, c: i32) {}
+
+// The `text_signature` still provides value here as of PyO3 0.18, because the automatically
+// generated signature would be "(a, b=..., c=...)".
+#[pyfunction(signature = (a, b = 1, c = 2), text_signature = "(a, b=1, c=2)")]
+fn function_with_defaults(a: i32, b: i32, c: i32) {}
+
+# fn main() {
+#     Python::with_gil(|py| {
+#         let simple = wrap_pyfunction!(simple_function, py).unwrap();
+#         assert_eq!(simple.getattr("__text_signature__").unwrap().to_string(), "(a, b, c)");
+#         let defaulted = wrap_pyfunction!(function_with_defaults, py).unwrap();
+#         assert_eq!(defaulted.getattr("__text_signature__").unwrap().to_string(), "(a, b=1, c=2)");
+#     })
+# }
+```
+
 ## from 0.16.* to 0.17
 
+### Type checks have been changed for `PyMapping` and `PySequence` types
+
+Previously the type checks for `PyMapping` and `PySequence` (implemented in `PyTryFrom`)
+used the Python C-API functions `PyMapping_Check` and `PySequence_Check`.
+Unfortunately these functions are not sufficient for distinguishing such types,
+leading to inconsistent behavior (see
+[pyo3/pyo3#2072](https://github.com/PyO3/pyo3/issues/2072)).
+
+PyO3 0.17 changes these downcast checks to explicitly test if the type is a
+subclass of the corresponding abstract base class `collections.abc.Mapping` or
+`collections.abc.Sequence`. Note this requires calling into Python, which may
+incur a performance penalty over the previous method. If this performance
+penalty is a problem, you may be able to perform your own checks and use
+`try_from_unchecked` (unsafe).
+
+Another side-effect is that a pyclass defined in Rust with PyO3 will need to
+be _registered_ with the corresponding Python abstract base class for
+downcasting to succeed. `PySequence::register` and `PyMapping:register` have
+been added to make it easy to do this from Rust code. These are equivalent to
+calling `collections.abc.Mapping.register(MappingPyClass)` or
+`collections.abc.Sequence.register(SequencePyClass)` from Python.
+
+For example, for a mapping class defined in Rust:
+```rust,compile_fail
+use pyo3::prelude::*;
+use std::collections::HashMap;
+
+#[pyclass(mapping)]
+struct Mapping {
+    index: HashMap<String, usize>,
+}
+
+#[pymethods]
+impl Mapping {
+    #[new]
+    fn new(elements: Option<&PyList>) -> PyResult<Self> {
+    // ...
+    // truncated implementation of this mapping pyclass - basically a wrapper around a HashMap
+}
+```
+
+You must register the class with `collections.abc.Mapping` before the downcast will work:
+```rust,compile_fail
+let m = Py::new(py, Mapping { index }).unwrap();
+assert!(m.as_ref(py).downcast::<PyMapping>().is_err());
+PyMapping::register::<Mapping>(py).unwrap();
+assert!(m.as_ref(py).downcast::<PyMapping>().is_ok());
+```
+
+Note that this requirement may go away in the future when a pyclass is able to inherit from the abstract base class directly (see [pyo3/pyo3#991](https://github.com/PyO3/pyo3/issues/991)).
+
+### The `multiple-pymethods` feature now requires Rust 1.62
+
+Due to limitations in the `inventory` crate which the `multiple-pymethods` feature depends on, this feature now
+requires Rust 1.62. For more information see [dtolnay/inventory#32](https://github.com/dtolnay/inventory/issues/32).
 
 ### Added `impl IntoPy<Py<PyString>> for &str`
 
@@ -73,6 +192,10 @@ fn get_type_object<T: PyTypeInfo>(py: Python<'_>) -> &PyType {
 
 If this leads to errors, simply implement `IntoPy`. Because pyclasses already implement `IntoPy`, you probably don't need to worry about this.
 
+### Each `#[pymodule]` can now only be initialized once per process
+
+To make PyO3 modules sound in the presence of Python sub-interpreters, for now it has been necessary to explicitly disable the ability to initialize a `#[pymodule]` more than once in the same process. Attempting to do this will now raise an `ImportError`.
+
 ## from 0.15.* to 0.16
 
 ### Drop support for older technologies
@@ -95,7 +218,7 @@ use pyo3::class::{PyBasicProtocol, PyIterProtocol};
 use pyo3::types::PyString;
 
 #[pyclass]
-struct MyClass { }
+struct MyClass {}
 
 #[pyproto]
 impl PyBasicProtocol for MyClass {
@@ -119,7 +242,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyString;
 
 #[pyclass]
-struct MyClass { }
+struct MyClass {}
 
 #[pymethods]
 impl MyClass {
@@ -170,9 +293,9 @@ class ExampleContainer:
 
 This class implements a Python [sequence](https://docs.python.org/3/glossary.html#term-sequence).
 
-The `__len__` and `__getitem__` methods are also used to implement a Python [mapping](https://docs.python.org/3/glossary.html#term-mapping). In the Python C-API, these methods are not shared: the sequence `__len__` and `__getitem__` are defined by the `sq_len` and `sq_item` slots, and the mapping equivalents are `mp_len` and `mp_subscript`. There are similar distinctions for `__setitem__` and `__delitem__`.
+The `__len__` and `__getitem__` methods are also used to implement a Python [mapping](https://docs.python.org/3/glossary.html#term-mapping). In the Python C-API, these methods are not shared: the sequence `__len__` and `__getitem__` are defined by the `sq_length` and `sq_item` slots, and the mapping equivalents are `mp_length` and `mp_subscript`. There are similar distinctions for `__setitem__` and `__delitem__`.
 
-Because there is no such distinction from Python, implementing these methods will fill the mapping and sequence slots simultaneously. A Python class with `__len__` implemented, for example, will have both the `sq_len` and `mp_len` slots filled.
+Because there is no such distinction from Python, implementing these methods will fill the mapping and sequence slots simultaneously. A Python class with `__len__` implemented, for example, will have both the `sq_length` and `mp_length` slots filled.
 
 The PyO3 behavior in 0.16 has been changed to be closer to this Python behavior by default.
 
@@ -272,7 +395,7 @@ The limitation of the new default implementation is that it cannot support multi
 
 Some protocol (aka `__dunder__`) methods such as `__bytes__` and `__format__` have been possible to implement two ways in PyO3 for some time: via a `#[pyproto]` (e.g. `PyBasicProtocol` for the methods listed here), or by writing them directly in `#[pymethods]`. This is only true for a handful of the `#[pyproto]` methods (for technical reasons to do with the way PyO3 currently interacts with the Python C-API).
 
-In the interest of having onle one way to do things, the `#[pyproto]` forms of these methods have been deprecated.
+In the interest of having only one way to do things, the `#[pyproto]` forms of these methods have been deprecated.
 
 To migrate just move the affected methods from a `#[pyproto]` to a `#[pymethods]` block.
 
@@ -283,7 +406,7 @@ use pyo3::prelude::*;
 use pyo3::class::basic::PyBasicProtocol;
 
 #[pyclass]
-struct MyClass { }
+struct MyClass {}
 
 #[pyproto]
 impl PyBasicProtocol for MyClass {
@@ -299,7 +422,7 @@ After:
 use pyo3::prelude::*;
 
 #[pyclass]
-struct MyClass { }
+struct MyClass {}
 
 #[pymethods]
 impl MyClass {
@@ -313,7 +436,7 @@ impl MyClass {
 
 ### Minimum Rust version increased to Rust 1.45
 
-PyO3 `0.13` makes use of new Rust language features stabilised between Rust 1.40 and Rust 1.45. If you are using a Rust compiler older than Rust 1.45, you will need to update your toolchain to be able to continue using PyO3.
+PyO3 `0.13` makes use of new Rust language features stabilized between Rust 1.40 and Rust 1.45. If you are using a Rust compiler older than Rust 1.45, you will need to update your toolchain to be able to continue using PyO3.
 
 ### Runtime changes to support the CPython limited API
 
@@ -397,7 +520,10 @@ assert_eq!(err.to_string(), "TypeError: error message");
 
 // Now possible to interact with exception instances, new for PyO3 0.12
 let instance: &PyBaseException = err.instance(py);
-assert_eq!(instance.getattr("__class__")?, PyTypeError::type_object(py).as_ref());
+assert_eq!(
+    instance.getattr("__class__")?,
+    PyTypeError::type_object(py).as_ref()
+);
 # Ok(())
 # }).unwrap();
 ```
@@ -508,7 +634,7 @@ There can be two fixes:
    #[pyclass]
    struct NotThreadSafe {
        shared_bools: Rc<RefCell<Vec<bool>>>,
-       closure: Box<dyn Fn()>
+       closure: Box<dyn Fn()>,
    }
    ```
 
@@ -521,14 +647,14 @@ There can be two fixes:
    #[pyclass]
    struct ThreadSafe {
        shared_bools: Arc<Mutex<Vec<bool>>>,
-       closure: Box<dyn Fn() + Send>
+       closure: Box<dyn Fn() + Send>,
    }
    ```
 
    In situations where you cannot change your `#[pyclass]` to automatically implement `Send`
    (e.g., when it contains a raw pointer), you can use `unsafe impl Send`.
    In such cases, care should be taken to ensure the struct is actually thread safe.
-   See [the Rustnomicon](https://doc.rust-lang.org/nomicon/send-and-sync.html) for more.
+   See [the Rustonomicon](https://doc.rust-lang.org/nomicon/send-and-sync.html) for more.
 
 2. If you think that your `#[pyclass]` should not be accessed by another thread, you can use
    `unsendable` flag. A class marked with `unsendable` panics when accessed by another thread,
@@ -619,10 +745,10 @@ struct MyClass {}
 
 #[pymethods]
 impl MyClass {
-   #[new]
-   fn new(obj: &PyRawObject) {
-       obj.init(MyClass { })
-   }
+    #[new]
+    fn new(obj: &PyRawObject) {
+        obj.init(MyClass {})
+    }
 }
 ```
 
@@ -634,10 +760,10 @@ struct MyClass {}
 
 #[pymethods]
 impl MyClass {
-   #[new]
-   fn new() -> Self {
-       MyClass {}
-   }
+    #[new]
+    fn new() -> Self {
+        MyClass {}
+    }
 }
 ```
 
@@ -660,7 +786,7 @@ Here is an example.
 
 #[pyclass]
 struct Names {
-    names: Vec<String>
+    names: Vec<String>,
 }
 
 #[pymethods]
@@ -779,10 +905,7 @@ impl PySequenceProtocol for ByteSequence {
 ```
 
 After:
-```rust
-# #[allow(deprecated)]
-# #[cfg(feature = "pyproto")]
-# {
+```rust,compile_fail
 # use pyo3::prelude::*;
 # use pyo3::class::PySequenceProtocol;
 #[pyclass]
@@ -796,7 +919,6 @@ impl PySequenceProtocol for ByteSequence {
         elements.extend_from_slice(&other.elements);
         Ok(Self { elements })
     }
-}
 }
 ```
 

@@ -1,3 +1,4 @@
+use crate::pyclass::boolean_struct::False;
 // Copyright (c) 2017-present PyO3 Project and Contributors
 use crate::conversion::PyTryFrom;
 use crate::err::{self, PyDowncastError, PyErr, PyResult};
@@ -5,13 +6,15 @@ use crate::gil;
 use crate::pycell::{PyBorrowError, PyBorrowMutError, PyCell};
 use crate::types::{PyDict, PyString, PyTuple};
 use crate::{
-    ffi, pyclass::MutablePyClass, AsPyPointer, FromPyObject, IntoPy, IntoPyPointer, PyAny, PyClass,
-    PyClassInitializer, PyRef, PyRefMut, PyTypeInfo, Python, ToPyObject,
+    ffi, AsPyPointer, FromPyObject, IntoPy, IntoPyPointer, PyAny, PyClass, PyClassInitializer,
+    PyRef, PyRefMut, PyTypeInfo, Python, ToPyObject,
 };
+use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::mem;
 use std::ptr::NonNull;
-use crate::inspect::types::TypeInfo;
+#[cfg(feature = "experimental-inspect")]
+use crate::inspect::types::{TypeInfo, ModuleName};
 
 /// Types that are built into the Python interpreter.
 ///
@@ -113,7 +116,7 @@ pub unsafe trait PyNativeType: Sized {
 /// #         let m = pyo3::types::PyModule::new(py, "test")?;
 /// #         m.add_class::<Foo>()?;
 /// #
-/// #         let foo: &PyCell<Foo> = pyo3::PyTryFrom::try_from(m.getattr("Foo")?.call0()?)?;
+/// #         let foo: &PyCell<Foo> = m.getattr("Foo")?.call0()?.downcast()?;
 /// #         let dict = &foo.borrow().inner;
 /// #         let dict: &PyDict = dict.as_ref(py);
 /// #
@@ -150,7 +153,7 @@ pub unsafe trait PyNativeType: Sized {
 /// #         let m = pyo3::types::PyModule::new(py, "test")?;
 /// #         m.add_class::<Foo>()?;
 /// #
-/// #         let foo: &PyCell<Foo> = pyo3::PyTryFrom::try_from(m.getattr("Foo")?.call0()?)?;
+/// #         let foo: &PyCell<Foo> = m.getattr("Foo")?.call0()?.downcast()?;
 /// #         let bar = &foo.borrow().inner;
 /// #         let bar: &Bar = &*bar.borrow(py);
 /// #
@@ -433,7 +436,7 @@ where
     /// [`try_borrow_mut`](#method.try_borrow_mut).
     pub fn borrow_mut<'py>(&'py self, py: Python<'py>) -> PyRefMut<'py, T>
     where
-        T: MutablePyClass,
+        T: PyClass<Frozen = False>,
     {
         self.as_ref(py).borrow_mut()
     }
@@ -463,7 +466,7 @@ where
         py: Python<'py>,
     ) -> Result<PyRefMut<'py, T>, PyBorrowMutError>
     where
-        T: MutablePyClass,
+        T: PyClass<Frozen = False>,
     {
         self.as_ref(py).try_borrow_mut()
     }
@@ -647,7 +650,10 @@ impl<T> Py<T> {
     /// This is equivalent to the Python expression `self()`.
     pub fn call0(&self, py: Python<'_>) -> PyResult<PyObject> {
         cfg_if::cfg_if! {
-            if #[cfg(all(Py_3_9, not(PyPy)))] {
+            if #[cfg(all(
+                not(PyPy),
+                any(Py_3_10, all(not(Py_LIMITED_API), Py_3_9)) // PyObject_CallNoArgs was added to python in 3.9 but to limited API in 3.10
+            ))] {
                 // Optimized path on python 3.9+
                 unsafe {
                     PyObject::from_owned_ptr_or_err(py, ffi::PyObject_CallNoArgs(self.as_ptr()))
@@ -909,7 +915,7 @@ where
 
 impl<'a, T> std::convert::From<PyRefMut<'a, T>> for Py<T>
 where
-    T: MutablePyClass,
+    T: PyClass<Frozen = False>,
 {
     fn from(pyref: PyRefMut<'a, T>) -> Self {
         unsafe { Py::from_borrowed_ptr(pyref.py(), pyref.as_ptr()) }
@@ -951,17 +957,22 @@ where
         }
     }
 
+    #[cfg(feature = "experimental-inspect")]
     fn type_input() -> TypeInfo {
         TypeInfo::Class {
-            module: T::MODULE,
-            name: T::NAME,
+            module: T::MODULE
+                .map(Cow::Borrowed)
+                .map(ModuleName::Module)
+                .unwrap_or(ModuleName::CurrentModule),
+            name: Cow::Borrowed(T::NAME),
+            type_vars: vec![],
         }
     }
 }
 
-/// Py<T> can be used as an error when T is an Error.
+/// `Py<T>` can be used as an error when T is an Error.
 ///
-/// However for GIL lifetime reasons, cause() cannot be implemented for Py<T>.
+/// However for GIL lifetime reasons, cause() cannot be implemented for `Py<T>`.
 /// Use .as_ref() to get the GIL-scoped error if you need to inspect the cause.
 impl<T> std::error::Error for Py<T>
 where
@@ -999,11 +1010,37 @@ impl PyObject {
     ///
     /// This can cast only to native Python types, not types implemented in Rust. For a more
     /// flexible alternative, see [`Py::extract`](struct.Py.html#method.extract).
+    #[inline]
+    pub fn downcast<'p, T>(&'p self, py: Python<'p>) -> Result<&T, PyDowncastError<'_>>
+    where
+        T: PyTryFrom<'p>,
+    {
+        <T as PyTryFrom<'_>>::try_from(self.as_ref(py))
+    }
+
+    /// Casts the PyObject to a concrete Python object type without checking validity.
+    ///
+    /// This can cast only to native Python types, not types implemented in Rust. For a more
+    /// flexible alternative, see [`Py::extract`](struct.Py.html#method.extract).
+    ///
+    /// # Safety
+    ///
+    /// Callers must ensure that the type is valid or risk type confusion.
+    #[inline]
+    pub unsafe fn downcast_unchecked<'p, T>(&'p self, py: Python<'p>) -> &T
+    where
+        T: PyTryFrom<'p>,
+    {
+        <T as PyTryFrom<'_>>::try_from_unchecked(self.as_ref(py))
+    }
+
+    /// Casts the PyObject to a concrete Python object type.
+    #[deprecated(since = "0.18.0", note = "use downcast() instead")]
     pub fn cast_as<'p, D>(&'p self, py: Python<'p>) -> Result<&'p D, PyDowncastError<'_>>
     where
         D: PyTryFrom<'p>,
     {
-        <D as PyTryFrom<'_>>::try_from(unsafe { py.from_borrowed_ptr::<PyAny>(self.as_ptr()) })
+        self.downcast(py)
     }
 }
 
@@ -1123,5 +1160,33 @@ a = A()
             instance.setattr(py, "foo", "bar").unwrap_err();
             Ok(())
         })
+    }
+
+    #[cfg(feature = "macros")]
+    mod using_macros {
+        use super::*;
+
+        #[crate::pyclass]
+        #[pyo3(crate = "crate")]
+        struct SomeClass(i32);
+
+        #[test]
+        fn instance_borrow_methods() {
+            // More detailed tests of the underlying semantics in pycell.rs
+            Python::with_gil(|py| {
+                let instance = Py::new(py, SomeClass(0)).unwrap();
+                assert_eq!(instance.borrow(py).0, 0);
+                assert_eq!(instance.try_borrow(py).unwrap().0, 0);
+                assert_eq!(instance.borrow_mut(py).0, 0);
+                assert_eq!(instance.try_borrow_mut(py).unwrap().0, 0);
+
+                instance.borrow_mut(py).0 = 123;
+
+                assert_eq!(instance.borrow(py).0, 123);
+                assert_eq!(instance.try_borrow(py).unwrap().0, 123);
+                assert_eq!(instance.borrow_mut(py).0, 123);
+                assert_eq!(instance.try_borrow_mut(py).unwrap().0, 123);
+            })
+        }
     }
 }

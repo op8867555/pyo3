@@ -23,41 +23,18 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-          profile: minimal
+      - uses: dtolnay/rust-toolchain@nightly
 
       - name: Setup mdBook
         uses: peaceiris/actions-mdbook@v1
         with:
-          mdbook-version: "0.4.10"
+          mdbook-version: "0.4.19"
 
       - name: Prepare tag
         id: prepare_tag
         run: |
           TAG_NAME="${GITHUB_REF##*/}"
           echo "::set-output name=tag_name::${TAG_NAME}"
-
-      # Build some internal docs and inject a banner on top of it.
-      - name: Build the internal docs
-        run: |
-          echo "<div class='internal-banner' style='position:fixed; z-index: 99999; color:red;border:3px solid red;margin-left: auto; margin-right: auto; width: 430px;left:0;right: 0;'><div style='display: flex; align-items: center; justify-content: center;'> ⚠️ Internal Docs ⚠️ Not Public API 👉 <a href='https://pyo3.rs/main/doc/pyo3/index.html' style='color:red;text-decoration:underline;'>Official Docs Here</a></div></div>" > banner.html
-          cargo xtask doc --internal
-        env:
-          RUSTDOCFLAGS: "--cfg docsrs --Z unstable-options --document-hidden-items --html-before-content banner.html"
-
-      - name: Deploy internal docs
-        if: ${{ github.ref == 'refs/heads/main' || github.event_name == 'release' }}
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./target/doc
-          destination_dir: internal/doc
-          full_commit_message: "Upload internal documentation"
-
-      - name: Clear the extra artefacts created earlier
-        run: rm -rf target
 
       # This builds the book in target/guide.
       - name: Build the guide
@@ -67,43 +44,14 @@ jobs:
         env:
           PYO3_VERSION_TAG: ${{ steps.prepare_tag.outputs.tag_name }}
 
-      # This adds the docs to target/guide/doc
-      - name: Build the doc
-        run: |
-          cargo xtask doc
-          echo "<meta http-equiv=refresh content=0;url=pyo3/index.html>" > target/guide/doc/index.html
-        env:
-          CARGO_TARGET_DIR: target/guide
-
       - name: Deploy docs and the guide
-        if: ${{ github.ref == 'refs/heads/main' || github.event_name == 'release' }}
+        if: ${{ github.event_name == 'release' }}
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./target/guide/
           destination_dir: ${{ steps.prepare_tag.outputs.tag_name }}
           full_commit_message: "Upload documentation for ${{ steps.prepare_tag.outputs.tag_name }}"
-
-  guide-release:
-    needs: guide-build
-    runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'release' }}
-    steps:
-      - name: Create latest tag redirects
-        env:
-          TAG_NAME: ${{ needs.build.outputs.tag_name }}
-        run: |
-          mkdir public
-          echo "<meta http-equiv=refresh content=0;url='$TAG_NAME/'>" > public/index.html
-          ln -sfT $TAG_NAME public/latest
-
-      - name: Deploy
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./public/
-          full_commit_message: "Release ${{ needs.build.outputs.tag_name }}"
-          keep_files: true
 
   cargo-benchmark:
     if: ${{ github.ref_name == 'main' }}
@@ -113,13 +61,9 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+      - uses: dtolnay/rust-toolchain@stable
 
-      - uses: actions/cache@v2
+      - uses: actions/cache@v3
         with:
           path: |
             ~/.cargo/registry
@@ -136,7 +80,7 @@ jobs:
 
       # Download previous benchmark result from cache (if exists)
       - name: Download previous benchmark data
-        uses: actions/cache@v1
+        uses: actions/cache@v3
         with:
           path: ./cache
           key: ${{ runner.os }}-benchmark
@@ -161,14 +105,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-python@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+      - uses: actions/setup-python@v4
+      - uses: dtolnay/rust-toolchain@stable
 
-      - uses: actions/cache@v2
+      - uses: actions/cache@v3
         with:
           path: |
             ~/.cargo/registry
@@ -178,7 +118,7 @@ jobs:
         continue-on-error: true
 
       - name: Download previous benchmark data
-        uses: actions/cache@v1
+        uses: actions/cache@v3
         with:
           path: ./cache
           key: ${{ runner.os }}-pytest-benchmark

@@ -9,27 +9,31 @@ use syn::{
 };
 
 pub mod kw {
+    syn::custom_keyword!(args);
     syn::custom_keyword!(annotation);
     syn::custom_keyword!(attribute);
     syn::custom_keyword!(dict);
     syn::custom_keyword!(extends);
     syn::custom_keyword!(freelist);
     syn::custom_keyword!(from_py_with);
+    syn::custom_keyword!(frozen);
     syn::custom_keyword!(gc);
     syn::custom_keyword!(get);
+    syn::custom_keyword!(get_all);
     syn::custom_keyword!(item);
     syn::custom_keyword!(mapping);
     syn::custom_keyword!(module);
     syn::custom_keyword!(name);
     syn::custom_keyword!(pass_module);
+    syn::custom_keyword!(sequence);
     syn::custom_keyword!(set);
+    syn::custom_keyword!(set_all);
     syn::custom_keyword!(signature);
     syn::custom_keyword!(subclass);
     syn::custom_keyword!(text_signature);
     syn::custom_keyword!(transparent);
     syn::custom_keyword!(unsendable);
     syn::custom_keyword!(weakref);
-    syn::custom_keyword!(immutable);
 }
 
 #[derive(Clone, Debug)]
@@ -39,8 +43,8 @@ pub struct KeywordAttribute<K, V> {
 }
 
 /// A helper type which parses the inner type via a literal string
-/// e.g. LitStrValue<Path> -> parses "some::path" in quotes.
-#[derive(Clone, Debug, PartialEq)]
+/// e.g. `LitStrValue<Path>` -> parses "some::path" in quotes.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LitStrValue<T>(pub T);
 
 impl<T: Parse> Parse for LitStrValue<T> {
@@ -57,7 +61,7 @@ impl<T: ToTokens> ToTokens for LitStrValue<T> {
 }
 
 /// A helper type which parses a name via a literal string
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NameLitStr(pub Ident);
 
 impl Parse for NameLitStr {
@@ -77,11 +81,46 @@ impl ToTokens for NameLitStr {
     }
 }
 
+/// Text signatue can be either a literal string or opt-in/out
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TextSignatureAttributeValue {
+    Str(LitStr),
+    // `None` ident to disable automatic text signature generation
+    Disabled(Ident),
+}
+
+impl Parse for TextSignatureAttributeValue {
+    fn parse(input: ParseStream<'_>) -> Result<Self> {
+        if let Ok(lit_str) = input.parse::<LitStr>() {
+            return Ok(TextSignatureAttributeValue::Str(lit_str));
+        }
+
+        let err_span = match input.parse::<Ident>() {
+            Ok(ident) if ident == "None" => {
+                return Ok(TextSignatureAttributeValue::Disabled(ident));
+            }
+            Ok(other_ident) => other_ident.span(),
+            Err(e) => e.span(),
+        };
+
+        Err(err_spanned!(err_span => "expected a string literal or `None`"))
+    }
+}
+
+impl ToTokens for TextSignatureAttributeValue {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        match self {
+            TextSignatureAttributeValue::Str(s) => s.to_tokens(tokens),
+            TextSignatureAttributeValue::Disabled(b) => b.to_tokens(tokens),
+        }
+    }
+}
+
 pub type ExtendsAttribute = KeywordAttribute<kw::extends, Path>;
 pub type FreelistAttribute = KeywordAttribute<kw::freelist, Box<Expr>>;
 pub type ModuleAttribute = KeywordAttribute<kw::module, LitStr>;
 pub type NameAttribute = KeywordAttribute<kw::name, NameLitStr>;
-pub type TextSignatureAttribute = KeywordAttribute<kw::text_signature, LitStr>;
+pub type TextSignatureAttribute = KeywordAttribute<kw::text_signature, TextSignatureAttributeValue>;
 
 impl<K: Parse + std::fmt::Debug, V: Parse> Parse for KeywordAttribute<K, V> {
     fn parse(input: ParseStream<'_>) -> Result<Self> {

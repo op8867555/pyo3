@@ -5,9 +5,10 @@ publish = false
 edition = "2018"
 
 [dev-dependencies]
-pyo3 = { version = "0.16.5", path = "..", features = ["auto-initialize", "extension-module"] }
+pyo3 = { version = "0.18.0", path = "..", features = ["auto-initialize", "extension-module"] }
 
 [[example]]
 name = "decorator"
 path = "decorator/src/lib.rs"
 crate_type = ["cdylib"]
+doc-scrape-examples = true

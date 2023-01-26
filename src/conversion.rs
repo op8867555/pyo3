@@ -2,14 +2,16 @@
 
 //! Defines conversions between Rust and Python types.
 use crate::err::{self, PyDowncastError, PyResult};
+#[cfg(feature = "experimental-inspect")]
+use crate::inspect::types::{TypeInfo, ModuleName};
+use crate::pyclass::boolean_struct::False;
 use crate::type_object::PyTypeInfo;
 use crate::types::PyTuple;
 use crate::{
-    ffi, gil, pyclass::MutablePyClass, Py, PyAny, PyCell, PyClass, PyNativeType, PyObject, PyRef,
-    PyRefMut, Python,
+    ffi, gil, Py, PyAny, PyCell, PyClass, PyNativeType, PyObject, PyRef, PyRefMut, Python,
 };
+use std::borrow::Cow;
 use std::ptr::NonNull;
-use crate::inspect::types::TypeInfo;
 
 /// Returns a borrowed pointer to a Python object.
 ///
@@ -246,10 +248,14 @@ pub trait IntoPy<T>: Sized {
     /// Performs the conversion.
     fn into_py(self, py: Python<'_>) -> T;
 
-    /// The Python type of the resulting object.
+    /// Extracts the type hint information for this type when it appears as a return value.
     ///
-    /// This function is used during inspection to extract the Python type from the Rust types.
-    /// The default implementation always returns `Any` (the type for untyped values).
+    /// For example, `Vec<u32>` would return `List[int]`.
+    /// The default implementation returns `Any`, which is correct for any type.
+    ///
+    /// For most types, the return value for this method will be identical to that of [`FromPyObject::type_input`].
+    /// It may be different for some types, such as `Dict`, to allow duck-typing: functions return `Dict` but take `Mapping` as argument.
+    #[cfg(feature = "experimental-inspect")]
     fn type_output() -> TypeInfo {
         TypeInfo::Any
     }
@@ -299,16 +305,14 @@ pub trait FromPyObject<'source>: Sized {
     /// Extracts `Self` from the source `PyObject`.
     fn extract(ob: &'source PyAny) -> PyResult<Self>;
 
-    /// The Python type of the accepted object.
+    /// Extracts the type hint information for this type when it appears as an argument.
     ///
-    /// This function is used during inspection to extract the Python type from the Rust types.
-    /// The default implementation always returns `Any` (the type for untyped values).
+    /// For example, `Vec<u32>` would return `Sequence[int]`.
+    /// The default implementation returns `Any`, which is correct for any type.
     ///
-    /// This function can be used to select which Python type is used when converting from Python to Rust,
-    /// whereas the same function in [`IntoPy`] is used to select the Python type used when converting from Rust to
-    /// Python.
-    /// These can be different to facilitate duck-typing: a dictionary is often declared as `Mapping[a, b]` when appearing
-    /// as an input, and `Dict[a, b]` when appearing as an output.
+    /// For most types, the return value for this method will be identical to that of [`IntoPy::type_output`].
+    /// It may be different for some types, such as `Dict`, to allow duck-typing: functions return `Dict` but take `Mapping` as argument.
+    #[cfg(feature = "experimental-inspect")]
     fn type_input() -> TypeInfo {
         TypeInfo::Any
     }
@@ -343,6 +347,7 @@ where
         self.map_or_else(|| py.None(), |val| val.into_py(py))
     }
 
+    #[cfg(feature = "experimental-inspect")]
     fn type_output() -> TypeInfo {
         TypeInfo::Optional(Box::new(T::type_output()))
     }
@@ -360,6 +365,7 @@ impl IntoPy<PyObject> for () {
         py.None()
     }
 
+    #[cfg(feature = "experimental-inspect")]
     fn type_output() -> TypeInfo {
         TypeInfo::None
     }
@@ -383,10 +389,15 @@ where
         PyTryFrom::try_from(obj).map_err(Into::into)
     }
 
+    #[cfg(feature = "experimental-inspect")]
     fn type_input() -> TypeInfo {
         TypeInfo::Class {
-            module: T::MODULE,
-            name: T::NAME,
+            module: T::MODULE
+                .map(Cow::Borrowed)
+                .map(ModuleName::Module)
+                .unwrap_or(ModuleName::CurrentModule),
+            name: Cow::Borrowed(T::NAME),
+            type_vars: vec![],
         }
     }
 }
@@ -400,10 +411,15 @@ where
         Ok(unsafe { cell.try_borrow_unguarded()?.clone() })
     }
 
+    #[cfg(feature = "experimental-inspect")]
     fn type_input() -> TypeInfo {
         TypeInfo::Class {
-            module: T::MODULE,
-            name: T::NAME,
+            module: T::MODULE
+                .map(Cow::Borrowed)
+                .map(ModuleName::Module)
+                .unwrap_or(ModuleName::CurrentModule),
+            name: Cow::Borrowed(T::NAME),
+            type_vars: vec![],
         }
     }
 }
@@ -417,27 +433,37 @@ where
         cell.try_borrow().map_err(Into::into)
     }
 
+    #[cfg(feature = "experimental-inspect")]
     fn type_input() -> TypeInfo {
         TypeInfo::Class {
-            module: T::MODULE,
-            name: T::NAME,
+            module: T::MODULE
+                .map(Cow::Borrowed)
+                .map(ModuleName::Module)
+                .unwrap_or(ModuleName::CurrentModule),
+            name: Cow::Borrowed(T::NAME),
+            type_vars: vec![],
         }
     }
 }
 
 impl<'a, T> FromPyObject<'a> for PyRefMut<'a, T>
 where
-    T: MutablePyClass,
+    T: PyClass<Frozen = False>,
 {
     fn extract(obj: &'a PyAny) -> PyResult<Self> {
         let cell: &PyCell<T> = PyTryFrom::try_from(obj)?;
         cell.try_borrow_mut().map_err(Into::into)
     }
 
+    #[cfg(feature = "experimental-inspect")]
     fn type_input() -> TypeInfo {
         TypeInfo::Class {
-            module: T::MODULE,
-            name: T::NAME,
+            module: T::MODULE
+                .map(Cow::Borrowed)
+                .map(ModuleName::Module)
+                .unwrap_or(ModuleName::CurrentModule),
+            name: Cow::Borrowed(T::NAME),
+            type_vars: vec![],
         }
     }
 }
@@ -454,6 +480,7 @@ where
         }
     }
 
+    #[cfg(feature = "experimental-inspect")]
     fn type_input() -> TypeInfo {
         TypeInfo::Optional(Box::new(T::type_input()))
     }
@@ -570,8 +597,9 @@ impl IntoPy<Py<PyTuple>> for () {
         PyTuple::empty(py).into()
     }
 
+    #[cfg(feature = "experimental-inspect")]
     fn type_output() -> TypeInfo {
-        TypeInfo::Tuple(vec![])
+        TypeInfo::Tuple(Some(vec![]))
     }
 }
 
@@ -664,6 +692,23 @@ where
         NonNull::new(ptr as *mut Self).map(|p| &*p.as_ptr())
     }
 }
+
+/// ```rust,compile_fail
+/// use pyo3::prelude::*;
+///
+/// #[pyclass]
+/// struct TestClass {
+///     num: u32,
+/// }
+///
+/// let t = TestClass { num: 10 };
+///
+/// Python::with_gil(|py| {
+///     let pyvalue = Py::new(py, t).unwrap().to_object(py);
+///     let t: TestClass = pyvalue.extract(py).unwrap();
+/// })
+/// ```
+mod test_no_clone {}
 
 #[cfg(test)]
 mod tests {

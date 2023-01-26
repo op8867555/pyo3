@@ -8,10 +8,7 @@ use crate::err::{self, PyResult};
 use crate::ffi::{self, Py_ssize_t};
 use crate::internal_tricks::get_ssize_index;
 use crate::types::PySequence;
-use crate::{
-    AsPyPointer, IntoPy, IntoPyPointer, Py, PyAny, PyObject, PyTryFrom, Python, ToPyObject,
-};
-use crate::inspect::types::TypeInfo;
+use crate::{AsPyPointer, IntoPyPointer, Py, PyAny, PyObject, Python, ToPyObject};
 
 /// Represents a Python `list`.
 #[repr(transparent)]
@@ -21,7 +18,7 @@ pyobject_native_type_core!(PyList, ffi::PyList_Type, #checkfunction=ffi::PyList_
 
 #[inline]
 #[track_caller]
-fn new_from_iter(
+pub(crate) fn new_from_iter(
     py: Python<'_>,
     elements: &mut dyn ExactSizeIterator<Item = PyObject>,
 ) -> Py<PyList> {
@@ -118,7 +115,7 @@ impl PyList {
 
     /// Returns `self` cast as a `PySequence`.
     pub fn as_sequence(&self) -> &PySequence {
-        unsafe { PySequence::try_from_unchecked(self) }
+        unsafe { self.downcast_unchecked() }
     }
 
     /// Gets the list item at the specified index.
@@ -145,7 +142,7 @@ impl PyList {
     /// # Safety
     ///
     /// Caller must verify that the index is within the bounds of the list.
-    #[cfg(not(any(Py_LIMITED_API, PyPy)))]
+    #[cfg(not(Py_LIMITED_API))]
     pub unsafe fn get_item_unchecked(&self, index: usize) -> &PyAny {
         let item = ffi::PyList_GET_ITEM(self.as_ptr(), index as Py_ssize_t);
         // PyList_GET_ITEM return borrowed ptr; must make owned for safety (see #890).
@@ -322,12 +319,14 @@ impl<'a> Iterator for PyListIterator<'a> {
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.list.len();
+        let len = self.len();
+        (len, Some(len))
+    }
+}
 
-        (
-            len.saturating_sub(self.index),
-            Some(len.saturating_sub(self.index)),
-        )
+impl<'a> ExactSizeIterator for PyListIterator<'a> {
+    fn len(&self) -> usize {
+        self.list.len().saturating_sub(self.index)
     }
 }
 
@@ -340,46 +339,11 @@ impl<'a> std::iter::IntoIterator for &'a PyList {
     }
 }
 
-impl<T> ToPyObject for [T]
-where
-    T: ToPyObject,
-{
-    fn to_object(&self, py: Python<'_>) -> PyObject {
-        let mut iter = self.iter().map(|e| e.to_object(py));
-        let list = new_from_iter(py, &mut iter);
-        list.into()
-    }
-}
-
-impl<T> ToPyObject for Vec<T>
-where
-    T: ToPyObject,
-{
-    fn to_object(&self, py: Python<'_>) -> PyObject {
-        self.as_slice().to_object(py)
-    }
-}
-
-impl<T> IntoPy<PyObject> for Vec<T>
-where
-    T: IntoPy<PyObject>,
-{
-    fn into_py(self, py: Python<'_>) -> PyObject {
-        let mut iter = self.into_iter().map(|e| e.into_py(py));
-        let list = new_from_iter(py, &mut iter);
-        list.into()
-    }
-
-    fn type_output() -> TypeInfo {
-        TypeInfo::List(Box::new(T::type_output()))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::types::PyList;
     use crate::Python;
-    use crate::{IntoPy, PyObject, PyTryFrom, ToPyObject};
+    use crate::{IntoPy, PyObject, ToPyObject};
 
     #[test]
     fn test_new() {
@@ -443,7 +407,7 @@ mod tests {
                 let _pool = unsafe { crate::GILPool::new() };
                 let v = vec![2];
                 let ob = v.to_object(py);
-                let list = <PyList as PyTryFrom>::try_from(ob.as_ref(py)).unwrap();
+                let list: &PyList = ob.downcast(py).unwrap();
                 let none = py.None();
                 cnt = none.get_refcnt(py);
                 list.set_item(0, none).unwrap();
@@ -530,7 +494,7 @@ mod tests {
         Python::with_gil(|py| {
             let v = vec![2, 3, 5, 7];
             let ob = v.to_object(py);
-            let list = <PyList as PyTryFrom>::try_from(ob.as_ref(py)).unwrap();
+            let list: &PyList = ob.downcast(py).unwrap();
 
             let mut iter = list.iter();
             assert_eq!(iter.size_hint(), (v.len(), Some(v.len())));
@@ -602,7 +566,7 @@ mod tests {
     fn test_array_into_py() {
         Python::with_gil(|py| {
             let array: PyObject = [1, 2].into_py(py);
-            let list = <PyList as PyTryFrom>::try_from(array.as_ref(py)).unwrap();
+            let list: &PyList = array.downcast(py).unwrap();
             assert_eq!(1, list[0].extract::<i32>().unwrap());
             assert_eq!(2, list[1].extract::<i32>().unwrap());
         });

@@ -11,7 +11,7 @@ If you want to become familiar with the codebase, see
 
 Please join in with any part of PyO3 which interests you. We use GitHub issues to record all bugs and ideas. Feel free to request an issue to be assigned to you if you want to work on it.
 
-You can browse the API of the non-public parts of PyO3 [here](https://pyo3.rs/internal/doc/pyo3/index.html).
+You can browse the API of the non-public parts of PyO3 [here](https://pyo3.netlify.app/internal/doc/pyo3/index.html).
 
 The following sections also contain specific ideas on where to start contributing to PyO3.
 
@@ -96,7 +96,18 @@ If you are adding a new feature, you should add it to the `full` feature in our 
 
 You can run these tests yourself with
 ```cargo xtask ci```
-See [it's documentation](https://github.com/PyO3/pyo3/tree/main/xtask#readme)for more commands you can run.
+See [its documentation](https://github.com/PyO3/pyo3/tree/main/xtask#readme) for more commands you can run.
+
+### Documenting changes
+
+We use [towncrier](https://towncrier.readthedocs.io/en/stable/index.html) to generate a CHANGELOG for each release.
+
+To include your changes in the release notes, you should create one (or more) news items in the `newsfragments` directory. Valid news items should be saved as `<PR>.<CATEGORY>.md` where `<PR>` is the pull request number and `<CATEGORY>` is one of the following:
+- `packaging` - for dependency changes and Python / Rust version compatibility changes
+- `added` - for new features
+- `changed` - for features which already existed but have been altered or deprecated
+- `removed` - for features which have been removed
+- `fixed` - for "changed" features which were classed as a bugfix
 
 ## Python and Rust version support policy
 
@@ -132,7 +143,7 @@ Second, there is a Python-based benchmark contained in the `pytests` subdirector
 
 You can view what code is and isn't covered by PyO3's tests. We aim to have 100% coverage - please check coverage and add tests if you notice a lack of coverage!
 
-- First, generate a `lcov.info` file with 
+- First, generate a `lcov.info` file with
 ```shell
 cargo xtask coverage
 ```
@@ -140,7 +151,7 @@ You can install an IDE plugin to view the coverage. For example, if you use VSCo
 - Add the [coverage-gutters](https://marketplace.visualstudio.com/items?itemName=ryanluker.vscode-coverage-gutters) plugin.
 - Add these settings to VSCode's `settings.json`:
 ```json
-{    
+{
     "coverage-gutters.coverageFileNames": [
         "lcov.info",
         "cov.xml",

@@ -11,8 +11,10 @@ use libc::wchar_t;
 fn test_datetime_fromtimestamp() {
     Python::with_gil(|py| {
         let args: Py<PyAny> = (100,).into_py(py);
-        unsafe { PyDateTime_IMPORT() };
-        let dt: &PyAny = unsafe { py.from_owned_ptr(PyDateTime_FromTimestamp(args.as_ptr())) };
+        let dt: &PyAny = unsafe {
+            PyDateTime_IMPORT();
+            py.from_owned_ptr(PyDateTime_FromTimestamp(args.as_ptr()))
+        };
         let locals = PyDict::new(py);
         locals.set_item("dt", dt).unwrap();
         py.run(
@@ -29,8 +31,10 @@ fn test_datetime_fromtimestamp() {
 fn test_date_fromtimestamp() {
     Python::with_gil(|py| {
         let args: Py<PyAny> = (100,).into_py(py);
-        unsafe { PyDateTime_IMPORT() };
-        let dt: &PyAny = unsafe { py.from_owned_ptr(PyDate_FromTimestamp(args.as_ptr())) };
+        let dt: &PyAny = unsafe {
+            PyDateTime_IMPORT();
+            py.from_owned_ptr(PyDate_FromTimestamp(args.as_ptr()))
+        };
         let locals = PyDict::new(py);
         locals.set_item("dt", dt).unwrap();
         py.run(
@@ -46,10 +50,9 @@ fn test_date_fromtimestamp() {
 #[test]
 fn test_utc_timezone() {
     Python::with_gil(|py| {
-        let utc_timezone = unsafe {
+        let utc_timezone: &PyAny = unsafe {
             PyDateTime_IMPORT();
-            &*(&PyDateTime_TimeZone_UTC() as *const *mut crate::ffi::PyObject
-                as *const crate::PyObject)
+            py.from_borrowed_ptr(PyDateTime_TimeZone_UTC())
         };
         let locals = PyDict::new(py);
         locals.set_item("utc_timezone", utc_timezone).unwrap();
@@ -59,6 +62,49 @@ fn test_utc_timezone() {
             Some(locals),
         )
         .unwrap();
+    })
+}
+
+#[test]
+#[cfg(feature = "macros")]
+#[cfg_attr(target_arch = "wasm32", ignore)] // DateTime import fails on wasm for mysterious reasons
+fn test_timezone_from_offset() {
+    use crate::types::PyDelta;
+
+    Python::with_gil(|py| {
+        let tz: &PyAny = unsafe {
+            PyDateTime_IMPORT();
+            py.from_borrowed_ptr(PyTimeZone_FromOffset(
+                PyDelta::new(py, 0, 100, 0, false).unwrap().as_ptr(),
+            ))
+        };
+        crate::py_run!(
+            py,
+            tz,
+            "import datetime; assert tz == datetime.timezone(datetime.timedelta(seconds=100))"
+        );
+    })
+}
+
+#[test]
+#[cfg(feature = "macros")]
+#[cfg_attr(target_arch = "wasm32", ignore)] // DateTime import fails on wasm for mysterious reasons
+fn test_timezone_from_offset_and_name() {
+    use crate::types::PyDelta;
+
+    Python::with_gil(|py| {
+        let tz: &PyAny = unsafe {
+            PyDateTime_IMPORT();
+            py.from_borrowed_ptr(PyTimeZone_FromOffsetAndName(
+                PyDelta::new(py, 0, 100, 0, false).unwrap().as_ptr(),
+                PyString::new(py, "testtz").as_ptr(),
+            ))
+        };
+        crate::py_run!(
+            py,
+            tz,
+            "import datetime; assert tz == datetime.timezone(datetime.timedelta(seconds=100), 'testtz')"
+        );
     })
 }
 
@@ -135,7 +181,7 @@ fn ascii() {
             // _PyUnicode_NONCOMPACT_DATA isn't valid for compact strings.
             assert!(!PyUnicode_DATA(ptr).is_null());
 
-            assert_eq!(PyUnicode_GET_LENGTH(ptr), s.len().unwrap() as _);
+            assert_eq!(PyUnicode_GET_LENGTH(ptr), s.len().unwrap() as Py_ssize_t);
             assert_eq!(PyUnicode_IS_READY(ptr), 1);
 
             // This has potential to mutate object. But it should be a no-op since
@@ -175,7 +221,10 @@ fn ucs4() {
             // _PyUnicode_NONCOMPACT_DATA isn't valid for compact strings.
             assert!(!PyUnicode_DATA(ptr).is_null());
 
-            assert_eq!(PyUnicode_GET_LENGTH(ptr), py_string.len().unwrap() as _);
+            assert_eq!(
+                PyUnicode_GET_LENGTH(ptr),
+                py_string.len().unwrap() as Py_ssize_t
+            );
             assert_eq!(PyUnicode_IS_READY(ptr), 1);
 
             // This has potential to mutate object. But it should be a no-op since
@@ -189,19 +238,19 @@ fn ucs4() {
 #[cfg_attr(target_arch = "wasm32", ignore)] // DateTime import fails on wasm for mysterious reasons
 #[cfg(not(PyPy))]
 fn test_get_tzinfo() {
+    use crate::types::timezone_utc;
+
     crate::Python::with_gil(|py| {
         use crate::types::{PyDateTime, PyTime};
-        use crate::{AsPyPointer, PyAny, ToPyObject};
+        use crate::{AsPyPointer, PyAny};
 
-        let datetime = py.import("datetime").map_err(|e| e.print(py)).unwrap();
-        let timezone = datetime.getattr("timezone").unwrap();
-        let utc = timezone.getattr("utc").unwrap().to_object(py);
+        let utc = timezone_utc(py);
 
-        let dt = PyDateTime::new(py, 2018, 1, 1, 0, 0, 0, 0, Some(&utc)).unwrap();
+        let dt = PyDateTime::new(py, 2018, 1, 1, 0, 0, 0, 0, Some(utc)).unwrap();
 
         assert!(
             unsafe { py.from_borrowed_ptr::<PyAny>(PyDateTime_DATE_GET_TZINFO(dt.as_ptr())) }
-                .is(&utc)
+                .is(utc)
         );
 
         let dt = PyDateTime::new(py, 2018, 1, 1, 0, 0, 0, 0, None).unwrap();
@@ -211,11 +260,11 @@ fn test_get_tzinfo() {
                 .is_none()
         );
 
-        let t = PyTime::new(py, 0, 0, 0, 0, Some(&utc)).unwrap();
+        let t = PyTime::new(py, 0, 0, 0, 0, Some(utc)).unwrap();
 
         assert!(
             unsafe { py.from_borrowed_ptr::<PyAny>(PyDateTime_TIME_GET_TZINFO(t.as_ptr())) }
-                .is(&utc)
+                .is(utc)
         );
 
         let t = PyTime::new(py, 0, 0, 0, 0, None).unwrap();

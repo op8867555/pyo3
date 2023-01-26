@@ -2,7 +2,8 @@ use crate::{
     exceptions::{PyAttributeError, PyNotImplementedError},
     ffi,
     impl_::freelist::FreeList,
-    pycell::{GetBorrowChecker, Mutability, PyCellLayout, PyClassMutability},
+    impl_::pycell::{GetBorrowChecker, PyClassMutability},
+    pycell::PyCellLayout,
     pyclass_init::PyObjectInit,
     type_object::PyLayout,
     Py, PyAny, PyCell, PyClass, PyErr, PyMethodDefType, PyNativeType, PyResult, PyTypeInfo, Python,
@@ -28,8 +29,8 @@ pub fn weaklist_offset<T: PyClass>() -> ffi::Py_ssize_t {
 
 /// Represents the `__dict__` field for `#[pyclass]`.
 pub trait PyClassDict {
-    /// Initializes a [PyObject](crate::ffi::PyObject) `__dict__` reference.
-    fn new() -> Self;
+    /// Initial form of a [PyObject](crate::ffi::PyObject) `__dict__` reference.
+    const INIT: Self;
     /// Empties the dictionary of its key-value pairs.
     #[inline]
     fn clear_dict(&mut self, _py: Python<'_>) {}
@@ -39,7 +40,7 @@ pub trait PyClassDict {
 /// Represents the `__weakref__` field for `#[pyclass]`.
 pub trait PyClassWeakRef {
     /// Initializes a `weakref` instance.
-    fn new() -> Self;
+    const INIT: Self;
     /// Clears the weak references to the given object.
     ///
     /// # Safety
@@ -55,18 +56,12 @@ pub struct PyClassDummySlot;
 
 impl PyClassDict for PyClassDummySlot {
     private_impl! {}
-    #[inline]
-    fn new() -> Self {
-        PyClassDummySlot
-    }
+    const INIT: Self = PyClassDummySlot;
 }
 
 impl PyClassWeakRef for PyClassDummySlot {
     private_impl! {}
-    #[inline]
-    fn new() -> Self {
-        PyClassDummySlot
-    }
+    const INIT: Self = PyClassDummySlot;
 }
 
 /// Actual dict field, which holds the pointer to `__dict__`.
@@ -77,10 +72,7 @@ pub struct PyClassDictSlot(*mut ffi::PyObject);
 
 impl PyClassDict for PyClassDictSlot {
     private_impl! {}
-    #[inline]
-    fn new() -> Self {
-        Self(std::ptr::null_mut())
-    }
+    const INIT: Self = Self(std::ptr::null_mut());
     #[inline]
     fn clear_dict(&mut self, _py: Python<'_>) {
         if !self.0.is_null() {
@@ -97,10 +89,7 @@ pub struct PyClassWeakRefSlot(*mut ffi::PyObject);
 
 impl PyClassWeakRef for PyClassWeakRefSlot {
     private_impl! {}
-    #[inline]
-    fn new() -> Self {
-        Self(std::ptr::null_mut())
-    }
+    const INIT: Self = Self(std::ptr::null_mut());
     #[inline]
     unsafe fn clear_weakrefs(&mut self, obj: *mut ffi::PyObject, _py: Python<'_>) {
         if !self.0.is_null() {
@@ -110,7 +99,7 @@ impl PyClassWeakRef for PyClassWeakRefSlot {
 }
 
 /// This type is used as a "dummy" type on which dtolnay specializations are
-/// applied to apply implementations from `#[pymethods]` & `#[pyproto]`
+/// applied to apply implementations from `#[pymethods]`
 pub struct PyClassImplCollector<T>(PhantomData<T>);
 
 impl<T> PyClassImplCollector<T> {
@@ -158,14 +147,14 @@ pub trait PyClassImpl: Sized {
     /// #[pyclass(mapping)]
     const IS_MAPPING: bool = false;
 
+    /// #[pyclass(sequence)]
+    const IS_SEQUENCE: bool = false;
+
     /// Layout
     type Layout: PyLayout<Self>;
 
     /// Base class
     type BaseType: PyTypeInfo + PyClassBaseType;
-
-    /// Immutable or mutable
-    type Mutability: Mutability;
 
     /// Immutable or mutable
     type PyClassMutability: PyClassMutability + GetBorrowChecker<Self>;
@@ -192,7 +181,7 @@ pub trait PyClassImpl: Sized {
     #[cfg(feature = "multiple-pymethods")]
     type Inventory: PyClassInventory;
 
-    fn for_all_items(visitor: &mut dyn FnMut(&PyClassItems));
+    fn items_iter() -> PyClassItemsIter;
 
     #[inline]
     fn dict_offset() -> Option<ffi::Py_ssize_t> {
@@ -201,6 +190,68 @@ pub trait PyClassImpl: Sized {
     #[inline]
     fn weaklist_offset() -> Option<ffi::Py_ssize_t> {
         None
+    }
+}
+
+/// Iterator used to process all class items during type instantiation.
+pub struct PyClassItemsIter {
+    /// Iteration state
+    idx: usize,
+    /// Items from the `#[pyclass]` macro
+    pyclass_items: &'static PyClassItems,
+    /// Items from the `#[pymethods]` macro
+    #[cfg(not(feature = "multiple-pymethods"))]
+    pymethods_items: &'static PyClassItems,
+    /// Items from the `#[pymethods]` macro with inventory
+    #[cfg(feature = "multiple-pymethods")]
+    pymethods_items: Box<dyn Iterator<Item = &'static PyClassItems>>,
+}
+
+impl PyClassItemsIter {
+    pub fn new(
+        pyclass_items: &'static PyClassItems,
+        #[cfg(not(feature = "multiple-pymethods"))] pymethods_items: &'static PyClassItems,
+        #[cfg(feature = "multiple-pymethods")] pymethods_items: Box<
+            dyn Iterator<Item = &'static PyClassItems>,
+        >,
+    ) -> Self {
+        Self {
+            idx: 0,
+            pyclass_items,
+            pymethods_items,
+        }
+    }
+}
+
+impl Iterator for PyClassItemsIter {
+    type Item = &'static PyClassItems;
+
+    #[cfg(not(feature = "multiple-pymethods"))]
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.idx {
+            0 => {
+                self.idx += 1;
+                Some(self.pyclass_items)
+            }
+            1 => {
+                self.idx += 1;
+                Some(self.pymethods_items)
+            }
+            // Termination clause
+            _ => None,
+        }
+    }
+
+    #[cfg(feature = "multiple-pymethods")]
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.idx {
+            0 => {
+                self.idx += 1;
+                Some(self.pyclass_items)
+            }
+            // Termination clause
+            _ => self.pymethods_items.next(),
+        }
     }
 }
 
@@ -262,29 +313,24 @@ macro_rules! generate_pyclass_getattro_slot {
             _slf: *mut $crate::ffi::PyObject,
             attr: *mut $crate::ffi::PyObject,
         ) -> *mut $crate::ffi::PyObject {
-            use ::std::result::Result::*;
-            use $crate::impl_::pyclass::*;
-            let gil = $crate::GILPool::new();
-            let py = gil.python();
-            $crate::callback::panic_result_into_callback_output(
-                py,
-                ::std::panic::catch_unwind(move || -> $crate::PyResult<_> {
-                    let collector = PyClassImplCollector::<$cls>::new();
+            $crate::impl_::trampoline::getattrofunc(_slf, attr, |py, _slf, attr| {
+                use ::std::result::Result::*;
+                use $crate::impl_::pyclass::*;
+                let collector = PyClassImplCollector::<$cls>::new();
 
-                    // Strategy:
-                    // - Try __getattribute__ first.  Its default is PyObject_GenericGetAttr.
-                    // - If it returns a result, use it.
-                    // - If it fails with AttributeError, try __getattr__.
-                    // - If it fails otherwise, reraise.
-                    match collector.__getattribute__(py, _slf, attr) {
-                        Ok(obj) => Ok(obj),
-                        Err(e) if e.is_instance_of::<$crate::exceptions::PyAttributeError>(py) => {
-                            collector.__getattr__(py, _slf, attr)
-                        }
-                        Err(e) => Err(e),
+                // Strategy:
+                // - Try __getattribute__ first. Its default is PyObject_GenericGetAttr.
+                // - If it returns a result, use it.
+                // - If it fails with AttributeError, try __getattr__.
+                // - If it fails otherwise, reraise.
+                match collector.__getattribute__(py, _slf, attr) {
+                    Ok(obj) => Ok(obj),
+                    Err(e) if e.is_instance_of::<$crate::exceptions::PyAttributeError>(py) => {
+                        collector.__getattr__(py, _slf, attr)
                     }
-                }),
-            )
+                    Err(e) => Err(e),
+                }
+            })
         }
         $crate::ffi::PyType_Slot {
             slot: $crate::ffi::Py_tp_getattro,
@@ -351,21 +397,21 @@ macro_rules! define_pyclass_setattr_slot {
                     attr: *mut $crate::ffi::PyObject,
                     value: *mut $crate::ffi::PyObject,
                 ) -> ::std::os::raw::c_int {
-                    use ::std::option::Option::*;
-                    use $crate::callback::IntoPyCallbackOutput;
-                    use $crate::impl_::pyclass::*;
-                    let gil = $crate::GILPool::new();
-                    let py = gil.python();
-                    $crate::callback::panic_result_into_callback_output(
-                        py,
-                        ::std::panic::catch_unwind(move || -> $crate::PyResult<_> {
+                    $crate::impl_::trampoline::setattrofunc(
+                        _slf,
+                        attr,
+                        value,
+                        |py, _slf, attr, value| {
+                            use ::std::option::Option::*;
+                            use $crate::callback::IntoPyCallbackOutput;
+                            use $crate::impl_::pyclass::*;
                             let collector = PyClassImplCollector::<$cls>::new();
                             if let Some(value) = ::std::ptr::NonNull::new(value) {
                                 collector.$set(py, _slf, attr, value).convert(py)
                             } else {
                                 collector.$del(py, _slf, attr).convert(py)
                             }
-                        }),
+                        },
                     )
                 }
                 $crate::ffi::PyType_Slot {
@@ -466,22 +512,17 @@ macro_rules! define_pyclass_binary_operator_slot {
                     _slf: *mut $crate::ffi::PyObject,
                     _other: *mut $crate::ffi::PyObject,
                 ) -> *mut $crate::ffi::PyObject {
-                    let gil = $crate::GILPool::new();
-                    let py = gil.python();
-                    $crate::callback::panic_result_into_callback_output(
-                        py,
-                        ::std::panic::catch_unwind(move || -> $crate::PyResult<_> {
-                            use $crate::impl_::pyclass::*;
-                            let collector = PyClassImplCollector::<$cls>::new();
-                            let lhs_result = collector.$lhs(py, _slf, _other)?;
-                            if lhs_result == $crate::ffi::Py_NotImplemented() {
-                                $crate::ffi::Py_DECREF(lhs_result);
-                                collector.$rhs(py, _other, _slf)
-                            } else {
-                                ::std::result::Result::Ok(lhs_result)
-                            }
-                        }),
-                    )
+                    $crate::impl_::trampoline::binaryfunc(_slf, _other, |py, _slf, _other| {
+                        use $crate::impl_::pyclass::*;
+                        let collector = PyClassImplCollector::<$cls>::new();
+                        let lhs_result = collector.$lhs(py, _slf, _other)?;
+                        if lhs_result == $crate::ffi::Py_NotImplemented() {
+                            $crate::ffi::Py_DECREF(lhs_result);
+                            collector.$rhs(py, _other, _slf)
+                        } else {
+                            ::std::result::Result::Ok(lhs_result)
+                        }
+                    })
                 }
                 $crate::ffi::PyType_Slot {
                     slot: $crate::ffi::$slot,
@@ -664,22 +705,17 @@ macro_rules! generate_pyclass_pow_slot {
             _other: *mut $crate::ffi::PyObject,
             _mod: *mut $crate::ffi::PyObject,
         ) -> *mut $crate::ffi::PyObject {
-            let gil = $crate::GILPool::new();
-            let py = gil.python();
-            $crate::callback::panic_result_into_callback_output(
-                py,
-                ::std::panic::catch_unwind(move || -> $crate::PyResult<_> {
-                    use $crate::impl_::pyclass::*;
-                    let collector = PyClassImplCollector::<$cls>::new();
-                    let lhs_result = collector.__pow__(py, _slf, _other, _mod)?;
-                    if lhs_result == $crate::ffi::Py_NotImplemented() {
-                        $crate::ffi::Py_DECREF(lhs_result);
-                        collector.__rpow__(py, _other, _slf, _mod)
-                    } else {
-                        ::std::result::Result::Ok(lhs_result)
-                    }
-                }),
-            )
+            $crate::impl_::trampoline::ternaryfunc(_slf, _other, _mod, |py, _slf, _other, _mod| {
+                use $crate::impl_::pyclass::*;
+                let collector = PyClassImplCollector::<$cls>::new();
+                let lhs_result = collector.__pow__(py, _slf, _other, _mod)?;
+                if lhs_result == $crate::ffi::Py_NotImplemented() {
+                    $crate::ffi::Py_DECREF(lhs_result);
+                    collector.__rpow__(py, _other, _slf, _mod)
+                } else {
+                    ::std::result::Result::Ok(lhs_result)
+                }
+            })
         }
         $crate::ffi::PyType_Slot {
             slot: $crate::ffi::Py_nb_power,
@@ -773,26 +809,6 @@ unsafe fn bpo_35810_workaround(_py: Python<'_>, ty: *mut ffi::PyTypeObject) {
     ffi::Py_INCREF(ty as *mut ffi::PyObject);
 }
 
-// General methods implementation: either dtolnay specialization trait or inventory if
-// multiple-pymethods feature is enabled.
-
-macro_rules! items_trait {
-    ($name:ident, $function_name: ident) => {
-        pub trait $name<T> {
-            fn $function_name(self) -> &'static PyClassItems;
-        }
-
-        impl<T> $name<T> for &'_ PyClassImplCollector<T> {
-            fn $function_name(self) -> &'static PyClassItems {
-                &PyClassItems {
-                    methods: &[],
-                    slots: &[],
-                }
-            }
-        }
-    };
-}
-
 /// Implementation detail. Only to be used through our proc macro code.
 /// Method storage for `#[pyclass]`.
 /// Allows arbitrary `#[pymethod]` blocks to submit their methods,
@@ -805,28 +821,19 @@ pub trait PyClassInventory: inventory::Collect {
 
 // Items from #[pymethods] if not using inventory.
 #[cfg(not(feature = "multiple-pymethods"))]
-items_trait!(PyMethods, py_methods);
-
-/// Items from `#[pyproto]` implementations
-#[cfg(feature = "pyproto")]
-mod pyproto_traits {
-    use super::*;
-    items_trait!(PyObjectProtocolItems, object_protocol_items);
-    items_trait!(PyDescrProtocolItems, descr_protocol_items);
-    items_trait!(PyGCProtocolItems, gc_protocol_items);
-    items_trait!(PyIterProtocolItems, iter_protocol_items);
-    items_trait!(PyMappingProtocolItems, mapping_protocol_items);
-    items_trait!(PyNumberProtocolItems, number_protocol_items);
-    items_trait!(PyAsyncProtocolItems, async_protocol_items);
-    items_trait!(PySequenceProtocolItems, sequence_protocol_items);
-    items_trait!(PyBufferProtocolItems, buffer_protocol_items);
+pub trait PyMethods<T> {
+    fn py_methods(self) -> &'static PyClassItems;
 }
-#[cfg(feature = "pyproto")]
-pub use pyproto_traits::*;
 
-// Protocol slots from #[pymethods] if not using inventory.
 #[cfg(not(feature = "multiple-pymethods"))]
-items_trait!(PyMethodsProtocolItems, methods_protocol_items);
+impl<T> PyMethods<T> for &'_ PyClassImplCollector<T> {
+    fn py_methods(self) -> &'static PyClassItems {
+        &PyClassItems {
+            methods: &[],
+            slots: &[],
+        }
+    }
+}
 
 // Thread checkers
 
@@ -921,7 +928,7 @@ impl<T: PyClass> PyClassBaseType for T {
 
 /// Implementation of tp_dealloc for all pyclasses
 pub(crate) unsafe extern "C" fn tp_dealloc<T: PyClass>(obj: *mut ffi::PyObject) {
-    crate::callback_body!(py, T::Layout::tp_dealloc(obj, py))
+    crate::impl_::trampoline::dealloc(obj, T::Layout::tp_dealloc)
 }
 
 pub(crate) unsafe extern "C" fn get_sequence_item_from_mapping(

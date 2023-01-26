@@ -4,13 +4,10 @@ use super::PyMapping;
 use crate::err::{self, PyErr, PyResult};
 use crate::ffi::Py_ssize_t;
 use crate::types::{PyAny, PyList};
+use crate::{ffi, AsPyPointer, Python, ToPyObject};
 #[cfg(not(PyPy))]
-use crate::IntoPyPointer;
-use crate::{ffi, AsPyPointer, FromPyObject, IntoPy, PyObject, PyTryFrom, Python, ToPyObject};
-use std::collections::{BTreeMap, HashMap};
+use crate::{IntoPyPointer, PyObject};
 use std::ptr::NonNull;
-use std::{cmp, collections, hash};
-use crate::inspect::types::TypeInfo;
 
 /// Represents a Python `dict`.
 #[repr(transparent)]
@@ -157,6 +154,27 @@ impl PyDict {
         }
     }
 
+    /// Gets an item from the dictionary,
+    ///
+    /// returns `Ok(None)` if item is not present, or `Err(PyErr)` if an error occurs.
+    ///
+    /// To get a `KeyError` for non-existing keys, use `PyAny::get_item_with_error`.
+    #[cfg(not(PyPy))]
+    pub fn get_item_with_error<K>(&self, key: K) -> PyResult<Option<&PyAny>>
+    where
+        K: ToPyObject,
+    {
+        unsafe {
+            let ptr =
+                ffi::PyDict_GetItemWithError(self.as_ptr(), key.to_object(self.py()).as_ptr());
+            if !ffi::PyErr_Occurred().is_null() {
+                return Err(PyErr::fetch(self.py()));
+            }
+
+            Ok(NonNull::new(ptr).map(|p| self.py().from_owned_ptr(ffi::_Py_NewRef(p.as_ptr()))))
+        }
+    }
+
     /// Sets an item value.
     ///
     /// This is equivalent to the Python statement `self[key] = value`.
@@ -237,10 +255,11 @@ impl PyDict {
 
     /// Returns `self` cast as a `PyMapping`.
     pub fn as_mapping(&self) -> &PyMapping {
-        unsafe { PyMapping::try_from_unchecked(self) }
+        unsafe { self.downcast_unchecked() }
     }
 }
 
+/// PyO3 implementation of an iterator for a Python `dict` object.
 pub struct PyDictIterator<'py> {
     dict: &'py PyDict,
     ppos: ffi::Py_ssize_t,
@@ -288,8 +307,14 @@ impl<'py> Iterator for PyDictIterator<'py> {
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.len as usize;
+        let len = self.len();
         (len, Some(len))
+    }
+}
+
+impl<'py> ExactSizeIterator for PyDictIterator<'py> {
+    fn len(&self) -> usize {
+        self.len as usize
     }
 }
 
@@ -329,61 +354,6 @@ impl<'py> PyDictIterator<'py> {
     }
 }
 
-impl<K, V, H> ToPyObject for collections::HashMap<K, V, H>
-where
-    K: hash::Hash + cmp::Eq + ToPyObject,
-    V: ToPyObject,
-    H: hash::BuildHasher,
-{
-    fn to_object(&self, py: Python<'_>) -> PyObject {
-        IntoPyDict::into_py_dict(self, py).into()
-    }
-}
-
-impl<K, V> ToPyObject for collections::BTreeMap<K, V>
-where
-    K: cmp::Eq + ToPyObject,
-    V: ToPyObject,
-{
-    fn to_object(&self, py: Python<'_>) -> PyObject {
-        IntoPyDict::into_py_dict(self, py).into()
-    }
-}
-
-impl<K, V, H> IntoPy<PyObject> for collections::HashMap<K, V, H>
-where
-    K: hash::Hash + cmp::Eq + IntoPy<PyObject>,
-    V: IntoPy<PyObject>,
-    H: hash::BuildHasher,
-{
-    fn into_py(self, py: Python<'_>) -> PyObject {
-        let iter = self
-            .into_iter()
-            .map(|(k, v)| (k.into_py(py), v.into_py(py)));
-        IntoPyDict::into_py_dict(iter, py).into()
-    }
-
-    fn type_output() -> TypeInfo {
-        TypeInfo::Dict(Box::new(K::type_output()), Box::new(V::type_output()))
-    }
-}
-
-impl<K, V> IntoPy<PyObject> for collections::BTreeMap<K, V>
-where
-    K: cmp::Eq + IntoPy<PyObject>,
-    V: IntoPy<PyObject>,
-{
-    fn into_py(self, py: Python<'_>) -> PyObject {
-        let iter = self
-            .into_iter()
-            .map(|(k, v)| (k.into_py(py), v.into_py(py)));
-        IntoPyDict::into_py_dict(iter, py).into()
-    }
-
-    fn type_output() -> TypeInfo {
-        TypeInfo::Dict(Box::new(K::type_output()), Box::new(V::type_output()))
-    }
-}
 
 /// Conversion trait that allows a sequence of tuples to be converted into `PyDict`
 /// Primary use case for this trait is `call` and `call_method` methods as keywords argument.
@@ -446,51 +416,14 @@ where
     }
 }
 
-impl<'source, K, V, S> FromPyObject<'source> for HashMap<K, V, S>
-where
-    K: FromPyObject<'source> + cmp::Eq + hash::Hash,
-    V: FromPyObject<'source>,
-    S: hash::BuildHasher + Default,
-{
-    fn extract(ob: &'source PyAny) -> Result<Self, PyErr> {
-        let dict = <PyDict as PyTryFrom>::try_from(ob)?;
-        let mut ret = HashMap::with_capacity_and_hasher(dict.len(), S::default());
-        for (k, v) in dict.iter() {
-            ret.insert(K::extract(k)?, V::extract(v)?);
-        }
-        Ok(ret)
-    }
-
-    fn type_input() -> TypeInfo {
-        TypeInfo::Mapping(Box::new(K::type_input()), Box::new(V::type_input()))
-    }
-}
-
-impl<'source, K, V> FromPyObject<'source> for BTreeMap<K, V>
-where
-    K: FromPyObject<'source> + cmp::Ord,
-    V: FromPyObject<'source>,
-{
-    fn extract(ob: &'source PyAny) -> Result<Self, PyErr> {
-        let dict = <PyDict as PyTryFrom>::try_from(ob)?;
-        let mut ret = BTreeMap::new();
-        for (k, v) in dict.iter() {
-            ret.insert(K::extract(k)?, V::extract(v)?);
-        }
-        Ok(ret)
-    }
-
-    fn type_input() -> TypeInfo {
-        TypeInfo::Mapping(Box::new(K::type_input()), Box::new(V::type_input()))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     #[cfg(not(PyPy))]
-    use crate::{types::PyList, PyTypeInfo};
-    use crate::{types::PyTuple, IntoPy, PyObject, PyTryFrom, Python, ToPyObject};
+    use crate::exceptions;
+    #[cfg(not(PyPy))]
+    use crate::types::PyList;
+    use crate::{types::PyTuple, Python, ToPyObject};
     use std::collections::{BTreeMap, HashMap};
 
     #[test]
@@ -546,11 +479,11 @@ mod tests {
         Python::with_gil(|py| {
             let mut v = HashMap::new();
             let ob = v.to_object(py);
-            let dict = <PyDict as PyTryFrom>::try_from(ob.as_ref(py)).unwrap();
+            let dict: &PyDict = ob.downcast(py).unwrap();
             assert_eq!(0, dict.len());
             v.insert(7, 32);
             let ob = v.to_object(py);
-            let dict2 = <PyDict as PyTryFrom>::try_from(ob.as_ref(py)).unwrap();
+            let dict2: &PyDict = ob.downcast(py).unwrap();
             assert_eq!(1, dict2.len());
         });
     }
@@ -561,7 +494,7 @@ mod tests {
             let mut v = HashMap::new();
             v.insert(7, 32);
             let ob = v.to_object(py);
-            let dict = <PyDict as PyTryFrom>::try_from(ob.as_ref(py)).unwrap();
+            let dict: &PyDict = ob.downcast(py).unwrap();
             assert!(dict.contains(7i32).unwrap());
             assert!(!dict.contains(8i32).unwrap());
         });
@@ -573,9 +506,33 @@ mod tests {
             let mut v = HashMap::new();
             v.insert(7, 32);
             let ob = v.to_object(py);
-            let dict = <PyDict as PyTryFrom>::try_from(ob.as_ref(py)).unwrap();
+            let dict: &PyDict = ob.downcast(py).unwrap();
             assert_eq!(32, dict.get_item(7i32).unwrap().extract::<i32>().unwrap());
             assert!(dict.get_item(8i32).is_none());
+        });
+    }
+
+    #[test]
+    #[cfg(not(PyPy))]
+    fn test_get_item_with_error() {
+        Python::with_gil(|py| {
+            let mut v = HashMap::new();
+            v.insert(7, 32);
+            let ob = v.to_object(py);
+            let dict: &PyDict = ob.downcast(py).unwrap();
+            assert_eq!(
+                32,
+                dict.get_item_with_error(7i32)
+                    .unwrap()
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap()
+            );
+            assert!(dict.get_item_with_error(8i32).unwrap().is_none());
+            assert!(dict
+                .get_item_with_error(dict)
+                .unwrap_err()
+                .is_instance_of::<exceptions::PyTypeError>(py));
         });
     }
 
@@ -585,7 +542,7 @@ mod tests {
             let mut v = HashMap::new();
             v.insert(7, 32);
             let ob = v.to_object(py);
-            let dict = <PyDict as PyTryFrom>::try_from(ob.as_ref(py)).unwrap();
+            let dict: &PyDict = ob.downcast(py).unwrap();
             assert!(dict.set_item(7i32, 42i32).is_ok()); // change
             assert!(dict.set_item(8i32, 123i32).is_ok()); // insert
             assert_eq!(
@@ -621,7 +578,7 @@ mod tests {
             let mut v = HashMap::new();
             v.insert(7, 32);
             let ob = v.to_object(py);
-            let dict = <PyDict as PyTryFrom>::try_from(ob.as_ref(py)).unwrap();
+            let dict: &PyDict = ob.downcast(py).unwrap();
             assert!(dict.set_item(7i32, 42i32).is_ok()); // change
             assert!(dict.set_item(8i32, 123i32).is_ok()); // insert
             assert_eq!(32i32, v[&7i32]); // not updated!
@@ -635,7 +592,7 @@ mod tests {
             let mut v = HashMap::new();
             v.insert(7, 32);
             let ob = v.to_object(py);
-            let dict = <PyDict as PyTryFrom>::try_from(ob.as_ref(py)).unwrap();
+            let dict: &PyDict = ob.downcast(py).unwrap();
             assert!(dict.del_item(7i32).is_ok());
             assert_eq!(0, dict.len());
             assert!(dict.get_item(7i32).is_none());
@@ -648,7 +605,7 @@ mod tests {
             let mut v = HashMap::new();
             v.insert(7, 32);
             let ob = v.to_object(py);
-            let dict = <PyDict as PyTryFrom>::try_from(ob.as_ref(py)).unwrap();
+            let dict: &PyDict = ob.downcast(py).unwrap();
             assert!(dict.del_item(7i32).is_ok()); // change
             assert_eq!(32i32, *v.get(&7i32).unwrap()); // not updated!
         });
@@ -662,12 +619,12 @@ mod tests {
             v.insert(8, 42);
             v.insert(9, 123);
             let ob = v.to_object(py);
-            let dict = <PyDict as PyTryFrom>::try_from(ob.as_ref(py)).unwrap();
+            let dict: &PyDict = ob.downcast(py).unwrap();
             // Can't just compare against a vector of tuples since we don't have a guaranteed ordering.
             let mut key_sum = 0;
             let mut value_sum = 0;
             for el in dict.items().iter() {
-                let tuple = el.cast_as::<PyTuple>().unwrap();
+                let tuple = el.downcast::<PyTuple>().unwrap();
                 key_sum += tuple.get_item(0).unwrap().extract::<i32>().unwrap();
                 value_sum += tuple.get_item(1).unwrap().extract::<i32>().unwrap();
             }
@@ -684,7 +641,7 @@ mod tests {
             v.insert(8, 42);
             v.insert(9, 123);
             let ob = v.to_object(py);
-            let dict = <PyDict as PyTryFrom>::try_from(ob.as_ref(py)).unwrap();
+            let dict: &PyDict = ob.downcast(py).unwrap();
             // Can't just compare against a vector of tuples since we don't have a guaranteed ordering.
             let mut key_sum = 0;
             for el in dict.keys().iter() {
@@ -702,7 +659,7 @@ mod tests {
             v.insert(8, 42);
             v.insert(9, 123);
             let ob = v.to_object(py);
-            let dict = <PyDict as PyTryFrom>::try_from(ob.as_ref(py)).unwrap();
+            let dict: &PyDict = ob.downcast(py).unwrap();
             // Can't just compare against a vector of tuples since we don't have a guaranteed ordering.
             let mut values_sum = 0;
             for el in dict.values().iter() {
@@ -720,7 +677,7 @@ mod tests {
             v.insert(8, 42);
             v.insert(9, 123);
             let ob = v.to_object(py);
-            let dict = <PyDict as PyTryFrom>::try_from(ob.as_ref(py)).unwrap();
+            let dict: &PyDict = ob.downcast(py).unwrap();
             let mut key_sum = 0;
             let mut value_sum = 0;
             for (key, value) in dict.iter() {
@@ -741,7 +698,7 @@ mod tests {
             v.insert(9, 123);
 
             let ob = v.to_object(py);
-            let dict = <PyDict as PyTryFrom>::try_from(ob.as_ref(py)).unwrap();
+            let dict: &PyDict = ob.downcast(py).unwrap();
 
             for (key, value) in dict.iter() {
                 dict.set_item(key, value.extract::<i32>().unwrap() + 7)
@@ -759,7 +716,7 @@ mod tests {
                 v.insert(i * 2, i * 2);
             }
             let ob = v.to_object(py);
-            let dict = <PyDict as PyTryFrom>::try_from(ob.as_ref(py)).unwrap();
+            let dict: &PyDict = ob.downcast(py).unwrap();
 
             for (i, (key, value)) in dict.iter().enumerate() {
                 let key = key.extract::<i32>().unwrap();
@@ -784,7 +741,7 @@ mod tests {
                 v.insert(i * 2, i * 2);
             }
             let ob = v.to_object(py);
-            let dict = <PyDict as PyTryFrom>::try_from(ob.as_ref(py)).unwrap();
+            let dict: &PyDict = ob.downcast(py).unwrap();
 
             for (i, (key, value)) in dict.iter().enumerate() {
                 let key = key.extract::<i32>().unwrap();
@@ -808,7 +765,7 @@ mod tests {
             v.insert(8, 42);
             v.insert(9, 123);
             let ob = v.to_object(py);
-            let dict = <PyDict as PyTryFrom>::try_from(ob.as_ref(py)).unwrap();
+            let dict: &PyDict = ob.downcast(py).unwrap();
 
             let mut iter = dict.iter();
             assert_eq!(iter.size_hint(), (v.len(), Some(v.len())));
@@ -834,7 +791,7 @@ mod tests {
             v.insert(8, 42);
             v.insert(9, 123);
             let ob = v.to_object(py);
-            let dict = <PyDict as PyTryFrom>::try_from(ob.as_ref(py)).unwrap();
+            let dict: &PyDict = ob.downcast(py).unwrap();
             let mut key_sum = 0;
             let mut value_sum = 0;
             for (key, value) in dict {
@@ -843,50 +800,6 @@ mod tests {
             }
             assert_eq!(7 + 8 + 9, key_sum);
             assert_eq!(32 + 42 + 123, value_sum);
-        });
-    }
-
-    #[test]
-    fn test_hashmap_to_python() {
-        Python::with_gil(|py| {
-            let mut map = HashMap::<i32, i32>::new();
-            map.insert(1, 1);
-
-            let m = map.to_object(py);
-            let py_map = <PyDict as PyTryFrom>::try_from(m.as_ref(py)).unwrap();
-
-            assert!(py_map.len() == 1);
-            assert!(py_map.get_item(1).unwrap().extract::<i32>().unwrap() == 1);
-            assert_eq!(map, py_map.extract().unwrap());
-        });
-    }
-
-    #[test]
-    fn test_btreemap_to_python() {
-        Python::with_gil(|py| {
-            let mut map = BTreeMap::<i32, i32>::new();
-            map.insert(1, 1);
-
-            let m = map.to_object(py);
-            let py_map = <PyDict as PyTryFrom>::try_from(m.as_ref(py)).unwrap();
-
-            assert!(py_map.len() == 1);
-            assert!(py_map.get_item(1).unwrap().extract::<i32>().unwrap() == 1);
-            assert_eq!(map, py_map.extract().unwrap());
-        });
-    }
-
-    #[test]
-    fn test_hashmap_into_python() {
-        Python::with_gil(|py| {
-            let mut map = HashMap::<i32, i32>::new();
-            map.insert(1, 1);
-
-            let m: PyObject = map.into_py(py);
-            let py_map = <PyDict as PyTryFrom>::try_from(m.as_ref(py)).unwrap();
-
-            assert!(py_map.len() == 1);
-            assert!(py_map.get_item(1).unwrap().extract::<i32>().unwrap() == 1);
         });
     }
 
@@ -900,20 +813,6 @@ mod tests {
 
             assert_eq!(py_map.len(), 1);
             assert_eq!(py_map.get_item(1).unwrap().extract::<i32>().unwrap(), 1);
-        });
-    }
-
-    #[test]
-    fn test_btreemap_into_py() {
-        Python::with_gil(|py| {
-            let mut map = BTreeMap::<i32, i32>::new();
-            map.insert(1, 1);
-
-            let m: PyObject = map.into_py(py);
-            let py_map = <PyDict as PyTryFrom>::try_from(m.as_ref(py)).unwrap();
-
-            assert!(py_map.len() == 1);
-            assert!(py_map.get_item(1).unwrap().extract::<i32>().unwrap() == 1);
         });
     }
 
@@ -988,7 +887,7 @@ mod tests {
         Python::with_gil(|py| {
             let dict = abc_dict(py);
             let keys = dict.call_method0("keys").unwrap();
-            assert!(keys.is_instance(PyDictKeys::type_object(py)).unwrap());
+            assert!(keys.is_instance(py.get_type::<PyDictKeys>()).unwrap());
         })
     }
 
@@ -998,7 +897,7 @@ mod tests {
         Python::with_gil(|py| {
             let dict = abc_dict(py);
             let values = dict.call_method0("values").unwrap();
-            assert!(values.is_instance(PyDictValues::type_object(py)).unwrap());
+            assert!(values.is_instance(py.get_type::<PyDictValues>()).unwrap());
         })
     }
 
@@ -1008,7 +907,7 @@ mod tests {
         Python::with_gil(|py| {
             let dict = abc_dict(py);
             let items = dict.call_method0("items").unwrap();
-            assert!(items.is_instance(PyDictItems::type_object(py)).unwrap());
+            assert!(items.is_instance(py.get_type::<PyDictItems>()).unwrap());
         })
     }
 }

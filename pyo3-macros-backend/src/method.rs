@@ -3,12 +3,13 @@
 use std::borrow::Cow;
 
 use crate::attributes::TextSignatureAttribute;
-use crate::deprecations::Deprecation;
-use crate::params::{accept_args_kwargs, impl_arg_params};
-use crate::pyfunction::PyFunctionOptions;
-use crate::pyfunction::{PyFunctionArgPyO3Attributes, PyFunctionSignature};
-use crate::utils::{self, get_pyo3_crate, PythonDoc};
-use crate::{deprecations::Deprecations, pyfunction::Argument};
+use crate::deprecations::{Deprecation, Deprecations};
+use crate::params::impl_arg_params;
+use crate::pyfunction::{
+    text_signature_or_auto, DeprecatedArgs, FunctionSignature, PyFunctionArgPyO3Attributes,
+};
+use crate::pyfunction::{PyFunctionOptions, SignatureAttribute};
+use crate::utils::{self, PythonDoc};
 use proc_macro2::{Span, TokenStream};
 use quote::ToTokens;
 use quote::{quote, quote_spanned};
@@ -23,8 +24,11 @@ pub struct FnArg<'a> {
     pub mutability: &'a Option<syn::token::Mut>,
     pub ty: &'a syn::Type,
     pub optional: Option<&'a syn::Type>,
+    pub default: Option<syn::Expr>,
     pub py: bool,
     pub attrs: PyFunctionArgPyO3Attributes,
+    pub is_varargs: bool,
+    pub is_kwargs: bool,
 }
 
 impl<'a> FnArg<'a> {
@@ -56,8 +60,11 @@ impl<'a> FnArg<'a> {
                     mutability,
                     ty: &cap.ty,
                     optional: utils::option_type_argument(&cap.ty),
+                    default: None,
                     py: utils::is_python(&cap.ty),
                     attrs: arg_attrs,
+                    is_varargs: false,
+                    is_kwargs: false,
                 })
             }
         }
@@ -194,11 +201,10 @@ impl CallingConvention {
     ///
     /// Different other slots (tp_call, tp_new) can have other requirements
     /// and are set manually (see `parse_fn_type` below).
-    pub fn from_args(args: &[FnArg<'_>], attrs: &[Argument]) -> Self {
-        let (_, accept_kwargs) = accept_args_kwargs(attrs);
-        if args.is_empty() {
+    pub fn from_signature(signature: &FunctionSignature<'_>) -> Self {
+        if signature.python_signature.has_no_args() {
             Self::Noargs
-        } else if accept_kwargs {
+        } else if signature.python_signature.kwargs.is_some() {
             // for functions that accept **kwargs, always prefer varargs
             Self::Varargs
         } else if cfg!(not(feature = "abi3")) {
@@ -217,14 +223,12 @@ pub struct FnSpec<'a> {
     // Wrapped python name. This should not have any leading r#.
     // r# can be removed by syn::ext::IdentExt::unraw()
     pub python_name: syn::Ident,
-    pub attrs: Vec<Argument>,
-    pub args: Vec<FnArg<'a>>,
+    pub signature: FunctionSignature<'a>,
     pub output: syn::Type,
     pub doc: PythonDoc,
     pub deprecations: Deprecations,
     pub convention: CallingConvention,
     pub text_signature: Option<TextSignatureAttribute>,
-    pub krate: syn::Path,
     pub unsafety: Option<syn::Token![unsafe]>,
 }
 
@@ -266,33 +270,25 @@ impl<'a> FnSpec<'a> {
     ) -> Result<FnSpec<'a>> {
         let PyFunctionOptions {
             text_signature,
-            krate,
             name,
             mut deprecations,
+            signature,
             ..
         } = options;
 
         let MethodAttributes {
             ty: fn_type_attr,
-            args: fn_attrs,
+            deprecated_args,
             mut python_name,
         } = parse_method_attributes(meth_attrs, name.map(|name| name.value.0), &mut deprecations)?;
 
         let (fn_type, skip_first_arg, fixed_convention) =
             Self::parse_fn_type(sig, fn_type_attr, &mut python_name)?;
-        Self::ensure_text_signature_on_valid_method(&fn_type, text_signature.as_ref())?;
+        ensure_signatures_on_valid_method(&fn_type, signature.as_ref(), text_signature.as_ref())?;
 
         let name = &sig.ident;
         let ty = get_return_info(&sig.output);
         let python_name = python_name.as_ref().unwrap_or(name).unraw();
-        let krate = get_pyo3_crate(&krate);
-
-        let doc = utils::get_doc(
-            meth_attrs,
-            text_signature
-                .as_ref()
-                .map(|attr| (Cow::Borrowed(&python_name), attr)),
-        );
 
         let arguments: Vec<_> = if skip_first_arg {
             sig.inputs
@@ -307,47 +303,47 @@ impl<'a> FnSpec<'a> {
                 .collect::<Result<_>>()?
         };
 
+        let signature = if let Some(signature) = signature {
+            ensure_spanned!(
+                deprecated_args.is_none(),
+                signature.kw.span() => "cannot define both function signature and legacy arguments"
+            );
+            FunctionSignature::from_arguments_and_attribute(arguments, signature)?
+        } else if let Some(deprecated_args) = deprecated_args {
+            FunctionSignature::from_arguments_and_deprecated_args(arguments, deprecated_args)?
+        } else {
+            FunctionSignature::from_arguments(arguments, &mut deprecations)
+        };
+
+        let text_signature_string = match &fn_type {
+            FnType::FnNew | FnType::Getter(_) | FnType::Setter(_) | FnType::ClassAttribute => None,
+            _ => text_signature_or_auto(text_signature.as_ref(), &signature, &fn_type),
+        };
+
+        let doc = utils::get_doc(
+            meth_attrs,
+            text_signature_string.map(|sig| (Cow::Borrowed(&python_name), sig)),
+        );
+
         let convention =
-            fixed_convention.unwrap_or_else(|| CallingConvention::from_args(&arguments, &fn_attrs));
+            fixed_convention.unwrap_or_else(|| CallingConvention::from_signature(&signature));
 
         Ok(FnSpec {
             tp: fn_type,
             name,
             convention,
             python_name,
-            attrs: fn_attrs,
-            args: arguments,
+            signature,
             output: ty,
             doc,
             deprecations,
             text_signature,
-            krate,
             unsafety: sig.unsafety,
         })
     }
 
     pub fn null_terminated_python_name(&self) -> syn::LitStr {
         syn::LitStr::new(&format!("{}\0", self.python_name), self.python_name.span())
-    }
-
-    fn ensure_text_signature_on_valid_method(
-        fn_type: &FnType,
-        text_signature: Option<&TextSignatureAttribute>,
-    ) -> syn::Result<()> {
-        if let Some(text_signature) = text_signature {
-            match &fn_type {
-                FnType::FnNew => bail_spanned!(
-                    text_signature.kw.span() =>
-                    "text_signature not allowed on __new__; if you want to add a signature on \
-                     __new__, put it on the struct definition instead"
-                ),
-                FnType::Getter(_) | FnType::Setter(_) | FnType::ClassAttribute => bail_spanned!(
-                    text_signature.kw.span() => "text_signature not allowed with this method type"
-                ),
-                _ => {}
-            }
-        }
-        Ok(())
     }
 
     fn parse_fn_type(
@@ -374,13 +370,7 @@ impl<'a> FnSpec<'a> {
 
         let (fn_type, skip_first_arg, fixed_convention) = match fn_type_attr {
             Some(MethodTypeAttribute::StaticMethod) => (FnType::FnStatic, false, None),
-            Some(MethodTypeAttribute::ClassAttribute) => {
-                ensure_spanned!(
-                    sig.inputs.is_empty(),
-                    sig.inputs.span() => "class attribute methods cannot take arguments"
-                );
-                (FnType::ClassAttribute, false, None)
-            }
+            Some(MethodTypeAttribute::ClassAttribute) => (FnType::ClassAttribute, false, None),
             Some(MethodTypeAttribute::New) => {
                 if let Some(name) = &python_name {
                     bail_spanned!(name.span() => "`name` not allowed with `#[new]`");
@@ -424,45 +414,6 @@ impl<'a> FnSpec<'a> {
         Ok((fn_type, skip_first_arg, fixed_convention))
     }
 
-    pub fn default_value(&self, name: &syn::Ident) -> Option<TokenStream> {
-        for s in &self.attrs {
-            match s {
-                Argument::Arg(path, opt) | Argument::Kwarg(path, opt) => {
-                    if path.is_ident(name) {
-                        if let Some(val) = opt {
-                            let i: syn::Expr = syn::parse_str(val).unwrap();
-                            return Some(i.into_token_stream());
-                        }
-                    }
-                }
-                _ => (),
-            }
-        }
-        None
-    }
-
-    pub fn is_pos_only(&self, name: &syn::Ident) -> bool {
-        for s in &self.attrs {
-            if let Argument::PosOnlyArg(path, _) = s {
-                if path.is_ident(name) {
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
-    pub fn is_kw_only(&self, name: &syn::Ident) -> bool {
-        for s in &self.attrs {
-            if let Argument::Kwarg(path, _) = s {
-                if path.is_ident(name) {
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
     /// Return a C wrapper function for this signature.
     pub fn get_wrapper_function(
         &self,
@@ -472,9 +423,6 @@ impl<'a> FnSpec<'a> {
         let deprecations = &self.deprecations;
         let self_conversion = self.tp.self_conversion(cls, ExtractErrorMode::Raise);
         let self_arg = self.tp.self_arg();
-        let arg_names = (0..self.args.len())
-            .map(|pos| syn::Ident::new(&format!("arg{}", pos), Span::call_site()))
-            .collect::<Vec<_>>();
         let py = syn::Ident::new("_py", Span::call_site());
         let func_name = &self.name;
         let rust_name = if let Some(cls) = cls {
@@ -483,100 +431,86 @@ impl<'a> FnSpec<'a> {
             quote!(#func_name)
         };
 
-        // The method call is necessary to generate a decent error message.
-        let rust_call = quote! {
-            let mut ret = #rust_name(#self_arg #(#arg_names),*);
-
-            if false {
-                use _pyo3::impl_::ghost::IntoPyResult;
-                ret.assert_into_py_result();
+        let rust_call = |args: Vec<TokenStream>| {
+            quote! {
+                let mut ret = #rust_name(#self_arg #(#args),*);
+                let owned = _pyo3::impl_::pymethods::OkWrap::wrap(ret, #py);
+                owned.map(|obj| _pyo3::conversion::IntoPyPointer::into_ptr(obj))
+                    .map_err(::core::convert::Into::into)
             }
-
-            _pyo3::callback::convert(#py, ret)
         };
 
-        let krate = &self.krate;
         Ok(match self.convention {
             CallingConvention::Noargs => {
+                let call = if !self.signature.arguments.is_empty() {
+                    // Only `py` arg can be here
+                    rust_call(vec![quote!(#py)])
+                } else {
+                    rust_call(vec![])
+                };
                 quote! {
-                    unsafe extern "C" fn #ident (
-                        _slf: *mut #krate::ffi::PyObject,
-                        _args: *mut #krate::ffi::PyObject,
-                    ) -> *mut #krate::ffi::PyObject
-                    {
-                        use #krate as _pyo3;
+                    unsafe fn #ident<'py>(
+                        #py: _pyo3::Python<'py>,
+                        _slf: *mut _pyo3::ffi::PyObject,
+                    ) -> _pyo3::PyResult<*mut _pyo3::ffi::PyObject> {
                         #deprecations
-                        let gil = _pyo3::GILPool::new();
-                        let #py = gil.python();
-                        _pyo3::callback::panic_result_into_callback_output(#py, ::std::panic::catch_unwind(move || -> _pyo3::PyResult<_> {
-                            #self_conversion
-                            #rust_call
-                        }))
+                        #self_conversion
+                        #call
                     }
                 }
             }
             CallingConvention::Fastcall => {
-                let arg_convert = impl_arg_params(self, cls, &py, true)?;
+                let (arg_convert, args) = impl_arg_params(self, cls, &py, true)?;
+                let call = rust_call(args);
                 quote! {
-                    unsafe extern "C" fn #ident (
-                        _slf: *mut #krate::ffi::PyObject,
-                        _args: *const *mut #krate::ffi::PyObject,
-                        _nargs: #krate::ffi::Py_ssize_t,
-                        _kwnames: *mut #krate::ffi::PyObject) -> *mut #krate::ffi::PyObject
-                    {
-                        use #krate as _pyo3;
+                    unsafe fn #ident<'py>(
+                        #py: _pyo3::Python<'py>,
+                        _slf: *mut _pyo3::ffi::PyObject,
+                        _args: *const *mut _pyo3::ffi::PyObject,
+                        _nargs: _pyo3::ffi::Py_ssize_t,
+                        _kwnames: *mut _pyo3::ffi::PyObject
+                    ) -> _pyo3::PyResult<*mut _pyo3::ffi::PyObject> {
                         #deprecations
-                        let gil = _pyo3::GILPool::new();
-                        let #py = gil.python();
-                        _pyo3::callback::panic_result_into_callback_output(#py, ::std::panic::catch_unwind(move || -> _pyo3::PyResult<_> {
-                            #self_conversion
-                            #arg_convert
-                            #rust_call
-                        }))
+                        #self_conversion
+                        #arg_convert
+                        #call
                     }
                 }
             }
             CallingConvention::Varargs => {
-                let arg_convert = impl_arg_params(self, cls, &py, false)?;
+                let (arg_convert, args) = impl_arg_params(self, cls, &py, false)?;
+                let call = rust_call(args);
                 quote! {
-                    unsafe extern "C" fn #ident (
-                        _slf: *mut #krate::ffi::PyObject,
-                        _args: *mut #krate::ffi::PyObject,
-                        _kwargs: *mut #krate::ffi::PyObject) -> *mut #krate::ffi::PyObject
-                    {
-                        use #krate as _pyo3;
+                    unsafe fn #ident<'py>(
+                        #py: _pyo3::Python<'py>,
+                        _slf: *mut _pyo3::ffi::PyObject,
+                        _args: *mut _pyo3::ffi::PyObject,
+                        _kwargs: *mut _pyo3::ffi::PyObject
+                    ) -> _pyo3::PyResult<*mut _pyo3::ffi::PyObject> {
                         #deprecations
-                        let gil = _pyo3::GILPool::new();
-                        let #py = gil.python();
-                        _pyo3::callback::panic_result_into_callback_output(#py, ::std::panic::catch_unwind(move || -> _pyo3::PyResult<_> {
-                            #self_conversion
-                            #arg_convert
-                            #rust_call
-                        }))
+                        #self_conversion
+                        #arg_convert
+                        #call
                     }
                 }
             }
             CallingConvention::TpNew => {
-                let rust_call = quote! { #rust_name(#(#arg_names),*) };
-                let arg_convert = impl_arg_params(self, cls, &py, false)?;
+                let (arg_convert, args) = impl_arg_params(self, cls, &py, false)?;
+                let call = quote! { #rust_name(#(#args),*) };
                 quote! {
-                    unsafe extern "C" fn #ident (
-                        subtype: *mut #krate::ffi::PyTypeObject,
-                        _args: *mut #krate::ffi::PyObject,
-                        _kwargs: *mut #krate::ffi::PyObject) -> *mut #krate::ffi::PyObject
-                    {
-                        use #krate as _pyo3;
-                        #deprecations
+                    unsafe fn #ident(
+                        #py: _pyo3::Python<'_>,
+                        subtype: *mut _pyo3::ffi::PyTypeObject,
+                        _args: *mut _pyo3::ffi::PyObject,
+                        _kwargs: *mut _pyo3::ffi::PyObject
+                    ) -> _pyo3::PyResult<*mut _pyo3::ffi::PyObject> {
                         use _pyo3::callback::IntoPyCallbackOutput;
-                        let gil = _pyo3::GILPool::new();
-                        let #py = gil.python();
-                        _pyo3::callback::panic_result_into_callback_output(#py, ::std::panic::catch_unwind(move || -> _pyo3::PyResult<_> {
-                            #arg_convert
-                            let result = #rust_call;
-                            let initializer: _pyo3::PyClassInitializer::<#cls> = result.convert(#py)?;
-                            let cell = initializer.create_cell_from_subtype(#py, subtype)?;
-                            ::std::result::Result::Ok(cell as *mut _pyo3::ffi::PyObject)
-                        }))
+                        #deprecations
+                        #arg_convert
+                        let result = #call;
+                        let initializer: _pyo3::PyClassInitializer::<#cls> = result.convert(#py)?;
+                        let cell = initializer.create_cell_from_subtype(#py, subtype)?;
+                        ::std::result::Result::Ok(cell as *mut _pyo3::ffi::PyObject)
                     }
                 }
             }
@@ -592,21 +526,66 @@ impl<'a> FnSpec<'a> {
             CallingConvention::Noargs => quote! {
                 _pyo3::impl_::pymethods::PyMethodDef::noargs(
                     #python_name,
-                    _pyo3::impl_::pymethods::PyCFunction(#wrapper),
+                    _pyo3::impl_::pymethods::PyCFunction({
+                        unsafe extern "C" fn trampoline(
+                            _slf: *mut _pyo3::ffi::PyObject,
+                            _args: *mut _pyo3::ffi::PyObject,
+                        ) -> *mut _pyo3::ffi::PyObject
+                        {
+                            _pyo3::impl_::trampoline::noargs(
+                                _slf,
+                                _args,
+                                #wrapper
+                            )
+                        }
+                        trampoline
+                    }),
                     #doc,
                 )
             },
             CallingConvention::Fastcall => quote! {
                 _pyo3::impl_::pymethods::PyMethodDef::fastcall_cfunction_with_keywords(
                     #python_name,
-                    _pyo3::impl_::pymethods::PyCFunctionFastWithKeywords(#wrapper),
+                    _pyo3::impl_::pymethods::PyCFunctionFastWithKeywords({
+                        unsafe extern "C" fn trampoline(
+                            _slf: *mut _pyo3::ffi::PyObject,
+                            _args: *const *mut _pyo3::ffi::PyObject,
+                            _nargs: _pyo3::ffi::Py_ssize_t,
+                            _kwnames: *mut _pyo3::ffi::PyObject
+                        ) -> *mut _pyo3::ffi::PyObject
+                        {
+                            _pyo3::impl_::trampoline::fastcall_with_keywords(
+                                _slf,
+                                _args,
+                                _nargs,
+                                _kwnames,
+                                #wrapper
+                            )
+                        }
+                        trampoline
+                    }),
                     #doc,
                 )
             },
             CallingConvention::Varargs => quote! {
                 _pyo3::impl_::pymethods::PyMethodDef::cfunction_with_keywords(
                     #python_name,
-                    _pyo3::impl_::pymethods::PyCFunctionWithKeywords(#wrapper),
+                    _pyo3::impl_::pymethods::PyCFunctionWithKeywords({
+                        unsafe extern "C" fn trampoline(
+                            _slf: *mut _pyo3::ffi::PyObject,
+                            _args: *mut _pyo3::ffi::PyObject,
+                            _kwargs: *mut _pyo3::ffi::PyObject,
+                        ) -> *mut _pyo3::ffi::PyObject
+                        {
+                            _pyo3::impl_::trampoline::cfunction_with_keywords(
+                                _slf,
+                                _args,
+                                _kwargs,
+                                #wrapper
+                            )
+                        }
+                        trampoline
+                    }),
                     #doc,
                 )
             },
@@ -615,10 +594,10 @@ impl<'a> FnSpec<'a> {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Debug)]
 struct MethodAttributes {
     ty: Option<MethodTypeAttribute>,
-    args: Vec<Argument>,
+    deprecated_args: Option<DeprecatedArgs>,
     python_name: Option<syn::Ident>,
 }
 
@@ -628,7 +607,7 @@ fn parse_method_attributes(
     deprecations: &mut Deprecations,
 ) -> Result<MethodAttributes> {
     let mut new_attrs = Vec::new();
-    let mut args = Vec::new();
+    let mut deprecated_args = None;
     let mut ty: Option<MethodTypeAttribute> = None;
 
     macro_rules! set_ty {
@@ -648,12 +627,7 @@ fn parse_method_attributes(
                 } else if name.is_ident("init") || name.is_ident("__init__") {
                     bail_spanned!(name.span() => "#[init] is disabled since PyO3 0.9.0");
                 } else if name.is_ident("call") || name.is_ident("__call__") {
-                    deprecations.push(Deprecation::CallAttribute, name.span());
-                    ensure_spanned!(
-                        python_name.is_none(),
-                        python_name.span() => "`name` may not be used with `#[call]`"
-                    );
-                    python_name = Some(syn::Ident::new("__call__", Span::call_site()));
+                    bail_spanned!(name.span() => "use `fn __call__` instead of `#[call]` attribute since PyO3 0.15.0");
                 } else if name.is_ident("classmethod") {
                     set_ty!(MethodTypeAttribute::ClassMethod, name);
                 } else if name.is_ident("staticmethod") {
@@ -731,8 +705,12 @@ fn parse_method_attributes(
                         }
                     };
                 } else if path.is_ident("args") {
-                    let attrs = PyFunctionSignature::from_meta(&nested)?;
-                    args.extend(attrs.arguments)
+                    ensure_spanned!(
+                        deprecated_args.is_none(),
+                        nested.span() => "args may only be specified once"
+                    );
+                    deprecations.push(Deprecation::PyMethodArgsAttribute, path.span());
+                    deprecated_args = Some(DeprecatedArgs::from_meta(&nested)?);
                 } else {
                     new_attrs.push(attr)
                 }
@@ -745,7 +723,7 @@ fn parse_method_attributes(
 
     Ok(MethodAttributes {
         ty,
-        args,
+        deprecated_args,
         python_name,
     })
 }
@@ -754,3 +732,44 @@ const IMPL_TRAIT_ERR: &str = "Python functions cannot have `impl Trait` argument
 const RECEIVER_BY_VALUE_ERR: &str =
     "Python objects are shared, so 'self' cannot be moved out of the Python interpreter.
 Try `&self`, `&mut self, `slf: PyRef<'_, Self>` or `slf: PyRefMut<'_, Self>`.";
+
+fn ensure_signatures_on_valid_method(
+    fn_type: &FnType,
+    signature: Option<&SignatureAttribute>,
+    text_signature: Option<&TextSignatureAttribute>,
+) -> syn::Result<()> {
+    if let Some(signature) = signature {
+        match fn_type {
+            FnType::Getter(_) => {
+                bail_spanned!(signature.kw.span() => "`signature` not allowed with `getter`")
+            }
+            FnType::Setter(_) => {
+                bail_spanned!(signature.kw.span() => "`signature` not allowed with `setter`")
+            }
+            FnType::ClassAttribute => {
+                bail_spanned!(signature.kw.span() => "`signature` not allowed with `classattr`")
+            }
+            _ => {}
+        }
+    }
+    if let Some(text_signature) = text_signature {
+        match fn_type {
+            FnType::FnNew => bail_spanned!(
+                text_signature.kw.span() =>
+                "`text_signature` not allowed on `__new__`; if you want to add a signature on \
+                 `__new__`, put it on the struct definition instead"
+            ),
+            FnType::Getter(_) => {
+                bail_spanned!(text_signature.kw.span() => "`text_signature` not allowed with `getter`")
+            }
+            FnType::Setter(_) => {
+                bail_spanned!(text_signature.kw.span() => "`text_signature` not allowed with `setter`")
+            }
+            FnType::ClassAttribute => {
+                bail_spanned!(text_signature.kw.span() => "`text_signature` not allowed with `classattr`")
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}

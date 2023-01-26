@@ -1,17 +1,18 @@
 // Copyright (c) 2017-present PyO3 Project and Contributors
 //
 // based on Daniel Grunwald's https://github.com/dgrunwald/rust-cpython
+#[cfg(feature = "experimental-inspect")]
+use crate::inspect::types::TypeInfo;
 use crate::{
     ffi, AsPyPointer, FromPyObject, IntoPy, PyAny, PyErr, PyObject, PyResult, Python, ToPyObject,
 };
 use std::os::raw::c_double;
-use crate::inspect::types::TypeInfo;
 
 /// Represents a Python `float` object.
 ///
 /// You can usually avoid directly working with this type
-/// by using [`ToPyObject`](trait.ToPyObject.html)
-/// and [extract](struct.PyAny.html#method.extract)
+/// by using [`ToPyObject`](crate::conversion::ToPyObject)
+/// and [`extract`](PyAny::extract)
 /// with `f32`/`f64`.
 #[repr(transparent)]
 pub struct PyFloat(PyAny);
@@ -46,8 +47,9 @@ impl IntoPy<PyObject> for f64 {
         PyFloat::new(py, self).into()
     }
 
+    #[cfg(feature = "experimental-inspect")]
     fn type_output() -> TypeInfo {
-        TypeInfo::Builtin("float")
+        TypeInfo::builtin("float")
     }
 }
 
@@ -66,8 +68,9 @@ impl<'source> FromPyObject<'source> for f64 {
         Ok(v)
     }
 
+    #[cfg(feature = "experimental-inspect")]
     fn type_input() -> TypeInfo {
-        <f64>::type_output()
+        Self::type_output()
     }
 }
 
@@ -82,8 +85,9 @@ impl IntoPy<PyObject> for f32 {
         PyFloat::new(py, f64::from(self)).into()
     }
 
+    #[cfg(feature = "experimental-inspect")]
     fn type_output() -> TypeInfo {
-        TypeInfo::Builtin("float")
+        TypeInfo::builtin("float")
     }
 }
 
@@ -92,8 +96,9 @@ impl<'source> FromPyObject<'source> for f32 {
         Ok(obj.extract::<f64>()? as f32)
     }
 
+    #[cfg(feature = "experimental-inspect")]
     fn type_input() -> TypeInfo {
-        <f32>::type_output()
+        Self::type_output()
     }
 }
 
@@ -111,7 +116,7 @@ mod tests {
             fn $func_name() {
                 use assert_approx_eq::assert_approx_eq;
 
-                Python::with_gil(|py|{
+                Python::with_gil(|py| {
 
                 let val = 123 as $t1;
                 let obj = val.to_object(py);

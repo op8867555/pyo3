@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 #![cfg_attr(feature = "nightly", feature(auto_traits, negative_impls))]
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 #![cfg_attr(
@@ -64,16 +65,13 @@
 //!
 //! # Feature flags
 //!
-//! PyO3 uses [feature flags] to enable you to opt-in to additional functionality.For a detailed
+//! PyO3 uses [feature flags] to enable you to opt-in to additional functionality. For a detailed
 //! description, see the [Features chapter of the guide].
 //!
 //! ## Default feature flags
 //!
 //! The following features are turned on by default:
-//! - `macros`: Enables various macros, including all the attribute macros excluding the deprecated
-//! `#[pyproto]` attribute.
-//! - `pyproto`: Adds the deprecated `#[pyproto]` attribute macro. Likely to become optional and
-//! then removed in the future.
+//! - `macros`: Enables various macros, including all the attribute macros.
 //!
 //! ## Optional feature flags
 //!
@@ -92,6 +90,7 @@
 //!
 //! The following features enable interactions with other crates in the Rust ecosystem:
 //! - [`anyhow`]: Enables a conversion from [anyhow]’s [`Error`][anyhow_error] type to [`PyErr`].
+//! - [`chrono`]: Enables a conversion from [chrono]'s structures to the equivalent Python ones.
 //! - [`eyre`]: Enables a conversion from [eyre]’s [`Report`] type to [`PyErr`].
 //! - [`hashbrown`]: Enables conversions between Python objects and [hashbrown]'s [`HashMap`] and
 //! [`HashSet`] types.
@@ -265,6 +264,8 @@
 //! [`Complex`]: https://docs.rs/num-complex/latest/num_complex/struct.Complex.html
 //! [`Deserialize`]: https://docs.rs/serde/latest/serde/trait.Deserialize.html
 //! [`Serialize`]: https://docs.rs/serde/latest/serde/trait.Serialize.html
+//! [chrono]: https://docs.rs/chrono/ "Date and Time for Rust."
+//! [`chrono`]: ./chrono/index.html "Documentation about the `chrono` feature."
 //! [eyre]: https://docs.rs/eyre/ "A library for easy idiomatic error handling and reporting in Rust applications."
 //! [`Report`]: https://docs.rs/eyre/latest/eyre/struct.Report.html
 //! [`eyre`]: ./eyre/index.html "Documentation about the `eyre` feature."
@@ -313,8 +314,13 @@ pub use crate::type_object::PyTypeInfo;
 pub use crate::types::PyAny;
 pub use crate::version::PythonVersionInfo;
 
-// Old directory layout, to be rethought?
-#[cfg(not(feature = "pyproto"))]
+/// Old module which contained some implementation details of the `#[pyproto]` module.
+///
+/// Prefer using the same content from `pyo3::pyclass`, e.g. `use pyo3::pyclass::CompareOp` instead
+/// of `use pyo3::class::basic::CompareOp`.
+///
+/// For compatibility reasons this has not yet been removed, however will be done so
+/// once <https://github.com/rust-lang/rust/issues/30827> is resolved.
 pub mod class {
     #[doc(hidden)]
     pub use crate::impl_::pymethods as methods;
@@ -326,20 +332,48 @@ pub mod class {
         PyClassAttributeDef, PyGetterDef, PyMethodDef, PyMethodDefType, PyMethodType, PySetterDef,
     };
 
+    /// Old module which contained some implementation details of the `#[pyproto]` module.
+    ///
+    /// Prefer using the same content from `pyo3::pyclass`, e.g. `use pyo3::pyclass::CompareOp` instead
+    /// of `use pyo3::class::basic::CompareOp`.
+    ///
+    /// For compatibility reasons this has not yet been removed, however will be done so
+    /// once <https://github.com/rust-lang/rust/issues/30827> is resolved.
     pub mod basic {
         pub use crate::pyclass::CompareOp;
     }
 
+    /// Old module which contained some implementation details of the `#[pyproto]` module.
+    ///
+    /// Prefer using the same content from `pyo3::pyclass`, e.g. `use pyo3::pyclass::IterANextOutput` instead
+    /// of `use pyo3::class::pyasync::IterANextOutput`.
+    ///
+    /// For compatibility reasons this has not yet been removed, however will be done so
+    /// once <https://github.com/rust-lang/rust/issues/30827> is resolved.
     pub mod pyasync {
         pub use crate::pyclass::{IterANextOutput, PyIterANextOutput};
     }
 
+    /// Old module which contained some implementation details of the `#[pyproto]` module.
+    ///
+    /// Prefer using the same content from `pyo3::pyclass`, e.g. `use pyo3::pyclass::IterNextOutput` instead
+    /// of `use pyo3::class::pyasync::IterNextOutput`.
+    ///
+    /// For compatibility reasons this has not yet been removed, however will be done so
+    /// once <https://github.com/rust-lang/rust/issues/30827> is resolved.
     pub mod iter {
         pub use crate::pyclass::{IterNextOutput, PyIterNextOutput};
     }
 
+    /// Old module which contained some implementation details of the `#[pyproto]` module.
+    ///
+    /// Prefer using the same content from `pyo3::pyclass`, e.g. `use pyo3::pyclass::PyTraverseError` instead
+    /// of `use pyo3::class::gc::PyTraverseError`.
+    ///
+    /// For compatibility reasons this has not yet been removed, however will be done so
+    /// once <https://github.com/rust-lang/rust/issues/30827> is resolved.
     pub mod gc {
-        pub use crate::impl_::pymethods::{PyTraverseError, PyVisit};
+        pub use crate::pyclass::{PyTraverseError, PyVisit};
     }
 }
 
@@ -360,8 +394,6 @@ mod internal_tricks;
 pub mod buffer;
 #[doc(hidden)]
 pub mod callback;
-#[cfg(feature = "pyproto")]
-pub mod class;
 pub mod conversion;
 mod conversions;
 #[macro_use]
@@ -390,22 +422,19 @@ mod version;
 
 pub use crate::conversions::*;
 
-#[doc(hidden)]
-#[deprecated(
-    since = "0.15.0",
-    note = "please import this with `use pyo3::...` or from the prelude instead"
-)]
 #[cfg(feature = "macros")]
-pub mod proc_macro {
-    #[cfg(feature = "pyproto")]
-    pub use pyo3_macros::pyproto;
-    pub use pyo3_macros::{pyclass, pyfunction, pymethods, pymodule};
-}
+pub use pyo3_macros::{pyfunction, pymethods, pymodule, FromPyObject};
 
-#[cfg(all(feature = "macros", feature = "pyproto"))]
-pub use pyo3_macros::pyproto;
+/// A proc macro used to expose Rust structs and fieldless enums as Python objects.
+///
+#[cfg_attr(docsrs, cfg_attr(docsrs, doc = include_str!("../guide/pyclass_parameters.md")))]
+///
+/// For more on creating Python classes,
+/// see the [class section of the guide][1].
+///
+/// [1]: https://pyo3.rs/latest/class.html
 #[cfg(feature = "macros")]
-pub use pyo3_macros::{pyclass, pyfunction, pymethods, pymodule, FromPyObject};
+pub use pyo3_macros::pyclass;
 
 #[cfg(feature = "macros")]
 #[macro_use]
@@ -416,6 +445,7 @@ mod macros;
 #[cfg(all(test, feature = "macros"))]
 mod test_hygiene;
 
+#[cfg(feature = "experimental-inspect")]
 pub mod inspect;
 
 /// Test readme and user guide
@@ -456,6 +486,8 @@ pub mod doc_test {
         "guide/src/faq.md" => guide_faq_md,
         "guide/src/features.md" => guide_features_md,
         "guide/src/function.md" => guide_function_md,
+        "guide/src/function/error_handling.md" => guide_function_error_handling_md,
+        "guide/src/function/signature.md" => guide_function_signature_md,
         "guide/src/memory.md" => guide_memory_md,
         "guide/src/migration.md" => guide_migration_md,
         "guide/src/module.md" => guide_module_md,

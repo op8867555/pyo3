@@ -3,6 +3,8 @@ use crate::conversion::{AsPyPointer, FromPyObject, IntoPy, IntoPyPointer, PyTryF
 use crate::err::{PyDowncastError, PyErr, PyResult};
 use crate::exceptions::PyTypeError;
 use crate::type_object::PyTypeInfo;
+#[cfg(not(PyPy))]
+use crate::types::PySuper;
 use crate::types::{PyDict, PyIterator, PyList, PyString, PyTuple, PyType};
 use crate::{err, ffi, Py, PyNativeType, PyObject, Python};
 use std::cell::UnsafeCell;
@@ -62,29 +64,6 @@ pyobject_native_type_extract!(PyAny);
 pyobject_native_type_sized!(PyAny, ffi::PyObject);
 
 impl PyAny {
-    /// Converts this `PyAny` to a concrete Python type.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use pyo3::prelude::*;
-    /// use pyo3::types::{PyAny, PyDict, PyList};
-    ///
-    /// Python::with_gil(|py| {
-    ///     let dict = PyDict::new(py);
-    ///     assert!(dict.is_instance_of::<PyAny>().unwrap());
-    ///     let any: &PyAny = dict.as_ref();
-    ///     assert!(any.downcast::<PyDict>().is_ok());
-    ///     assert!(any.downcast::<PyList>().is_err());
-    /// });
-    /// ```
-    pub fn downcast<T>(&self) -> Result<&T, PyDowncastError<'_>>
-    where
-        for<'py> T: PyTryFrom<'py>,
-    {
-        <T as PyTryFrom>::try_from(self)
-    }
-
     /// Returns whether `self` and `other` point to the same object. To compare
     /// the equality of two objects (the `==` operator), use [`eq`](PyAny::eq).
     ///
@@ -484,7 +463,10 @@ impl PyAny {
     /// This is equivalent to the Python expression `help()`.
     pub fn call0(&self) -> PyResult<&PyAny> {
         cfg_if::cfg_if! {
-            if #[cfg(all(Py_3_9, not(PyPy)))] {
+            if #[cfg(all(
+                not(PyPy),
+                any(Py_3_10, all(not(Py_LIMITED_API), Py_3_9)) // PyObject_CallNoArgs was added to python in 3.9 but to limited API in 3.10
+            ))] {
                 // Optimized path on python 3.9+
                 unsafe {
                     self.py().from_owned_ptr_or_err(ffi::PyObject_CallNoArgs(self.as_ptr()))
@@ -764,14 +746,52 @@ impl PyAny {
         unsafe { ffi::Py_TYPE(self.as_ptr()) }
     }
 
-    /// Casts `self` to a concrete Python object type.
-    ///
-    /// This can cast only to native Python types, not types implemented in Rust.
+    /// Converts this `PyAny` to a concrete Python type.
+    #[deprecated(since = "0.18.0", note = "use the equivalent .downcast()")]
     pub fn cast_as<'a, D>(&'a self) -> Result<&'a D, PyDowncastError<'_>>
     where
         D: PyTryFrom<'a>,
     {
-        <D as PyTryFrom<'_>>::try_from(self)
+        self.downcast()
+    }
+
+    /// Converts this `PyAny` to a concrete Python type.
+    ///
+    /// This can cast only to native Python types, not types implemented in Rust.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use pyo3::prelude::*;
+    /// use pyo3::types::{PyAny, PyDict, PyList};
+    ///
+    /// Python::with_gil(|py| {
+    ///     let dict = PyDict::new(py);
+    ///     assert!(dict.is_instance_of::<PyAny>().unwrap());
+    ///     let any: &PyAny = dict.as_ref();
+    ///     assert!(any.downcast::<PyDict>().is_ok());
+    ///     assert!(any.downcast::<PyList>().is_err());
+    /// });
+    /// ```
+    #[inline]
+    pub fn downcast<'p, T>(&'p self) -> Result<&'p T, PyDowncastError<'_>>
+    where
+        T: PyTryFrom<'p>,
+    {
+        <T as PyTryFrom>::try_from(self)
+    }
+
+    /// Converts this `PyAny` to a concrete Python type without checking validity.
+    ///
+    /// # Safety
+    ///
+    /// Callers must ensure that the type is valid or risk type confusion.
+    #[inline]
+    pub unsafe fn downcast_unchecked<'p, T>(&'p self) -> &'p T
+    where
+        T: PyTryFrom<'p>,
+    {
+        <T as PyTryFrom>::try_from_unchecked(self)
     }
 
     /// Extracts some type from the Python object.
@@ -843,7 +863,7 @@ impl PyAny {
     /// Checks whether this object is an instance of type `ty`.
     ///
     /// This is equivalent to the Python expression `isinstance(self, ty)`.
-    pub fn is_instance(&self, ty: &PyType) -> PyResult<bool> {
+    pub fn is_instance(&self, ty: &PyAny) -> PyResult<bool> {
         let result = unsafe { ffi::PyObject_IsInstance(self.as_ptr(), ty.as_ptr()) };
         err::error_on_minusone(self.py(), result)?;
         Ok(result == 1)
@@ -880,12 +900,19 @@ impl PyAny {
     pub fn py(&self) -> Python<'_> {
         PyNativeType::py(self)
     }
+
+    /// Return a proxy object that delegates method calls to a parent or sibling class of type.
+    ///
+    /// This is equivalent to the Python expression `super()`
+    #[cfg(not(PyPy))]
+    pub fn py_super(&self) -> PyResult<&PySuper> {
+        PySuper::new(self.get_type(), self)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        type_object::PyTypeInfo,
         types::{IntoPyDict, PyList, PyLong, PyModule},
         Python, ToPyObject,
     };
@@ -972,7 +999,7 @@ class SimpleClass:
     }
 
     #[test]
-    fn test_any_isinstance() {
+    fn test_any_isinstance_of() {
         Python::with_gil(|py| {
             let x = 5.to_object(py).into_ref(py);
             assert!(x.is_instance_of::<PyLong>().unwrap());
@@ -983,10 +1010,10 @@ class SimpleClass:
     }
 
     #[test]
-    fn test_any_isinstance_of() {
+    fn test_any_isinstance() {
         Python::with_gil(|py| {
             let l = vec![1u8, 2].to_object(py).into_ref(py);
-            assert!(l.is_instance(PyList::type_object(py)).unwrap());
+            assert!(l.is_instance(py.get_type::<PyList>()).unwrap());
         });
     }
 

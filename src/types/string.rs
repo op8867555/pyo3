@@ -3,13 +3,11 @@
 #[cfg(all(not(Py_LIMITED_API), target_endian = "little"))]
 use crate::exceptions::PyUnicodeDecodeError;
 use crate::types::PyBytes;
-use crate::{
-    ffi, AsPyPointer, FromPyObject, IntoPy, Py, PyAny, PyObject, PyResult, PyTryFrom, Python,
-    ToPyObject,
-};
+use crate::{ffi, AsPyPointer, PyAny, PyResult, Python};
 use std::borrow::Cow;
 use std::os::raw::c_char;
 use std::str;
+#[cfg(feature = "experimental-inspect")]
 use crate::inspect::types::TypeInfo;
 
 /// Represents raw data backing a Python `str`.
@@ -17,7 +15,7 @@ use crate::inspect::types::TypeInfo;
 /// Python internally stores strings in various representations. This enumeration
 /// represents those variations.
 #[cfg(all(not(Py_LIMITED_API), target_endian = "little"))]
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PyStringData<'a> {
     /// UCS1 representation.
     Ucs1(&'a [u8]),
@@ -283,203 +281,20 @@ impl PyString {
     }
 }
 
-/// Converts a Rust `str` to a Python object.
-/// See `PyString::new` for details on the conversion.
-impl ToPyObject for str {
-    #[inline]
-    fn to_object(&self, py: Python<'_>) -> PyObject {
-        PyString::new(py, self).into()
-    }
-}
-
-impl<'a> IntoPy<PyObject> for &'a str {
-    #[inline]
-    fn into_py(self, py: Python<'_>) -> PyObject {
-        PyString::new(py, self).into()
-    }
-
-    fn type_output() -> TypeInfo {
-        TypeInfo::Builtin("str")
-    }
-}
-
-impl<'a> IntoPy<Py<PyString>> for &'a str {
-    #[inline]
-    fn into_py(self, py: Python<'_>) -> Py<PyString> {
-        PyString::new(py, self).into()
-    }
-
-    fn type_output() -> TypeInfo {
-        TypeInfo::Builtin("str")
-    }
-}
-
-/// Converts a Rust `Cow<'_, str>` to a Python object.
-/// See `PyString::new` for details on the conversion.
-impl<'a> ToPyObject for Cow<'a, str> {
-    #[inline]
-    fn to_object(&self, py: Python<'_>) -> PyObject {
-        PyString::new(py, self).into()
-    }
-}
-
-impl IntoPy<PyObject> for Cow<'_, str> {
-    #[inline]
-    fn into_py(self, py: Python<'_>) -> PyObject {
-        self.to_object(py)
-    }
-}
-
-/// Converts a Rust `String` to a Python object.
-/// See `PyString::new` for details on the conversion.
-impl ToPyObject for String {
-    #[inline]
-    fn to_object(&self, py: Python<'_>) -> PyObject {
-        PyString::new(py, self).into()
-    }
-}
-
-impl ToPyObject for char {
-    fn to_object(&self, py: Python<'_>) -> PyObject {
-        self.into_py(py)
-    }
-}
-
-impl IntoPy<PyObject> for char {
-    fn into_py(self, py: Python<'_>) -> PyObject {
-        let mut bytes = [0u8; 4];
-        PyString::new(py, self.encode_utf8(&mut bytes)).into()
-    }
-
-    fn type_output() -> TypeInfo {
-        TypeInfo::Builtin("str")
-    }
-}
-
-impl IntoPy<PyObject> for String {
-    fn into_py(self, py: Python<'_>) -> PyObject {
-        PyString::new(py, &self).into()
-    }
-
-    fn type_output() -> TypeInfo {
-        TypeInfo::Builtin("str")
-    }
-}
-
-impl<'a> IntoPy<PyObject> for &'a String {
-    #[inline]
-    fn into_py(self, py: Python<'_>) -> PyObject {
-        PyString::new(py, self).into()
-    }
-
-    fn type_output() -> TypeInfo {
-        TypeInfo::Builtin("str")
-    }
-}
-
-/// Allows extracting strings from Python objects.
-/// Accepts Python `str` and `unicode` objects.
-impl<'source> FromPyObject<'source> for &'source str {
-    fn extract(ob: &'source PyAny) -> PyResult<Self> {
-        <PyString as PyTryFrom>::try_from(ob)?.to_str()
-    }
-
-    fn type_input() -> TypeInfo {
-        TypeInfo::Builtin("str")
-    }
-}
-
-/// Allows extracting strings from Python objects.
-/// Accepts Python `str` and `unicode` objects.
-impl FromPyObject<'_> for String {
-    fn extract(obj: &PyAny) -> PyResult<Self> {
-        <PyString as PyTryFrom>::try_from(obj)?
-            .to_str()
-            .map(ToOwned::to_owned)
-    }
-
-    fn type_input() -> TypeInfo {
-        TypeInfo::Builtin("str")
-    }
-}
-
-impl FromPyObject<'_> for char {
-    fn extract(obj: &PyAny) -> PyResult<Self> {
-        let s = <PyString as PyTryFrom<'_>>::try_from(obj)?.to_str()?;
-        let mut iter = s.chars();
-        if let (Some(ch), None) = (iter.next(), iter.next()) {
-            Ok(ch)
-        } else {
-            Err(crate::exceptions::PyValueError::new_err(
-                "expected a string of length 1",
-            ))
-        }
-    }
-
-    fn type_input() -> TypeInfo {
-        TypeInfo::Builtin("str")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(all(not(Py_LIMITED_API), target_endian = "little"))]
-    use crate::PyTypeInfo;
     use crate::Python;
-    use crate::{FromPyObject, PyObject, PyTryFrom, ToPyObject};
+    use crate::{PyObject, ToPyObject};
     #[cfg(all(not(Py_LIMITED_API), target_endian = "little"))]
     use std::borrow::Cow;
-
-    #[test]
-    fn test_non_bmp() {
-        Python::with_gil(|py| {
-            let s = "\u{1F30F}";
-            let py_string = s.to_object(py);
-            assert_eq!(s, py_string.extract::<String>(py).unwrap());
-        })
-    }
-
-    #[test]
-    fn test_extract_str() {
-        Python::with_gil(|py| {
-            let s = "Hello Python";
-            let py_string = s.to_object(py);
-
-            let s2: &str = FromPyObject::extract(py_string.as_ref(py)).unwrap();
-            assert_eq!(s, s2);
-        })
-    }
-
-    #[test]
-    fn test_extract_char() {
-        Python::with_gil(|py| {
-            let ch = '😃';
-            let py_string = ch.to_object(py);
-            let ch2: char = FromPyObject::extract(py_string.as_ref(py)).unwrap();
-            assert_eq!(ch, ch2);
-        })
-    }
-
-    #[test]
-    fn test_extract_char_err() {
-        Python::with_gil(|py| {
-            let s = "Hello Python";
-            let py_string = s.to_object(py);
-            let err: crate::PyResult<char> = FromPyObject::extract(py_string.as_ref(py));
-            assert!(err
-                .unwrap_err()
-                .to_string()
-                .contains("expected a string of length 1"));
-        })
-    }
 
     #[test]
     fn test_to_str_ascii() {
         Python::with_gil(|py| {
             let s = "ascii 🐈";
             let obj: PyObject = PyString::new(py, s).into();
-            let py_string = <PyString as PyTryFrom>::try_from(obj.as_ref(py)).unwrap();
+            let py_string: &PyString = obj.downcast(py).unwrap();
             assert_eq!(s, py_string.to_str().unwrap());
         })
     }
@@ -488,7 +303,7 @@ mod tests {
     fn test_to_str_surrogate() {
         Python::with_gil(|py| {
             let obj: PyObject = py.eval(r#"'\ud800'"#, None, None).unwrap().into();
-            let py_string = <PyString as PyTryFrom>::try_from(obj.as_ref(py)).unwrap();
+            let py_string: &PyString = obj.downcast(py).unwrap();
             assert!(py_string.to_str().is_err());
         })
     }
@@ -498,7 +313,7 @@ mod tests {
         Python::with_gil(|py| {
             let s = "哈哈🐈";
             let obj: PyObject = PyString::new(py, s).into();
-            let py_string = <PyString as PyTryFrom>::try_from(obj.as_ref(py)).unwrap();
+            let py_string: &PyString = obj.downcast(py).unwrap();
             assert_eq!(s, py_string.to_str().unwrap());
         })
     }
@@ -510,7 +325,7 @@ mod tests {
                 .eval(r#"'🐈 Hello \ud800World'"#, None, None)
                 .unwrap()
                 .into();
-            let py_string = <PyString as PyTryFrom>::try_from(obj.as_ref(py)).unwrap();
+            let py_string: &PyString = obj.downcast(py).unwrap();
             assert_eq!(py_string.to_string_lossy(), "🐈 Hello ���World");
         })
     }
@@ -519,7 +334,7 @@ mod tests {
     fn test_debug_string() {
         Python::with_gil(|py| {
             let v = "Hello\n".to_object(py);
-            let s = <PyString as PyTryFrom>::try_from(v.as_ref(py)).unwrap();
+            let s: &PyString = v.downcast(py).unwrap();
             assert_eq!(format!("{:?}", s), "'Hello\\n'");
         })
     }
@@ -528,7 +343,7 @@ mod tests {
     fn test_display_string() {
         Python::with_gil(|py| {
             let v = "Hello\n".to_object(py);
-            let s = <PyString as PyTryFrom>::try_from(v.as_ref(py)).unwrap();
+            let s: &PyString = v.downcast(py).unwrap();
             assert_eq!(format!("{}", s), "Hello\n");
         })
     }
@@ -564,7 +379,7 @@ mod tests {
             let data = unsafe { s.data().unwrap() };
             assert_eq!(data, PyStringData::Ucs1(b"f\xfe"));
             let err = data.to_string(py).unwrap_err();
-            assert!(err.get_type(py).is(PyUnicodeDecodeError::type_object(py)));
+            assert!(err.get_type(py).is(py.get_type::<PyUnicodeDecodeError>()));
             assert!(err
                 .to_string()
                 .contains("'utf-8' codec can't decode byte 0xfe in position 1"));
@@ -577,7 +392,7 @@ mod tests {
     fn test_string_data_ucs2() {
         Python::with_gil(|py| {
             let s = py.eval("'foo\\ud800'", None, None).unwrap();
-            let py_string = s.cast_as::<PyString>().unwrap();
+            let py_string = s.downcast::<PyString>().unwrap();
             let data = unsafe { py_string.data().unwrap() };
 
             assert_eq!(data, PyStringData::Ucs2(&[102, 111, 111, 0xd800]));
@@ -606,7 +421,7 @@ mod tests {
             let data = unsafe { s.data().unwrap() };
             assert_eq!(data, PyStringData::Ucs2(&[0xff22, 0xd800]));
             let err = data.to_string(py).unwrap_err();
-            assert!(err.get_type(py).is(PyUnicodeDecodeError::type_object(py)));
+            assert!(err.get_type(py).is(py.get_type::<PyUnicodeDecodeError>()));
             assert!(err
                 .to_string()
                 .contains("'utf-16' codec can't decode bytes in position 0-3"));
@@ -645,7 +460,7 @@ mod tests {
             let data = unsafe { s.data().unwrap() };
             assert_eq!(data, PyStringData::Ucs4(&[0x20000, 0xd800]));
             let err = data.to_string(py).unwrap_err();
-            assert!(err.get_type(py).is(PyUnicodeDecodeError::type_object(py)));
+            assert!(err.get_type(py).is(py.get_type::<PyUnicodeDecodeError>()));
             assert!(err
                 .to_string()
                 .contains("'utf-32' codec can't decode bytes in position 0-7"));
