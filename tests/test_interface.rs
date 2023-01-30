@@ -1,10 +1,12 @@
-#![cfg(feature = "macros")]
+#![cfg(feature = "experimental-inspect")]
 
-use pyo3::prelude::*;
+use std::borrow::Cow;
+
 use pyo3::inspect::classes::{ClassInfo, ClassStructInfo, InspectClass};
 use pyo3::inspect::fields::{ArgumentInfo, ArgumentKind, FieldInfo, FieldKind};
 use pyo3::inspect::interface::InterfaceGenerator;
-use pyo3::inspect::types::TypeInfo;
+use pyo3::inspect::types::{ModuleName, TypeInfo};
+use pyo3::prelude::*;
 use pyo3::types::PyType;
 
 mod common;
@@ -16,7 +18,10 @@ fn types() {
     assert_eq!("bytes", format!("{}", <&[u8]>::type_output()));
     assert_eq!("str", format!("{}", <String>::type_output()));
     assert_eq!("str", format!("{}", <char>::type_output()));
-    assert_eq!("Optional[str]", format!("{}", <Option<String>>::type_output()));
+    assert_eq!(
+        "Optional[str]",
+        format!("{}", <Option<String>>::type_output())
+    );
     assert_eq!("Simple", format!("{}", <&PyCell<Simple>>::type_input()));
 }
 
@@ -35,10 +40,14 @@ fn empty_manual() {
         fields: &[],
     };
 
-    assert_eq!(EXPECTED_EMPTY, format!("{}", InterfaceGenerator::new(class)))
+    assert_eq!(
+        EXPECTED_EMPTY,
+        format!("{}", InterfaceGenerator::new(class))
+    )
 }
 
 #[pyclass]
+#[derive(Clone)]
 struct Empty {}
 
 #[pymethods]
@@ -46,7 +55,10 @@ impl Empty {}
 
 #[test]
 fn empty_derived() {
-    assert_eq!(EXPECTED_EMPTY, format!("{}", InterfaceGenerator::new(Empty::inspect())))
+    assert_eq!(
+        EXPECTED_EMPTY,
+        format!("{}", InterfaceGenerator::new(Empty::inspect()))
+    )
 }
 
 //endregion
@@ -76,20 +88,21 @@ fn simple_manual() {
                 name: "plus_one",
                 kind: FieldKind::Function,
                 py_type: Some(|| TypeInfo::Builtin("int")),
-                arguments: &[
-                    ArgumentInfo {
-                        name: "a",
-                        kind: ArgumentKind::PositionOrKeyword,
-                        py_type: Some(|| TypeInfo::Builtin("int")),
-                        default_value: false,
-                        is_modified: false,
-                    }
-                ],
-            }
+                arguments: &[ArgumentInfo {
+                    name: "a",
+                    kind: ArgumentKind::PositionOrKeyword,
+                    py_type: Some(|| TypeInfo::Builtin("int")),
+                    default_value: false,
+                    is_modified: false,
+                }],
+            },
         ],
     };
 
-    assert_eq!(EXPECTED_SIMPLE, format!("{}", InterfaceGenerator::new(class)))
+    assert_eq!(
+        EXPECTED_SIMPLE,
+        format!("{}", InterfaceGenerator::new(class))
+    )
 }
 
 #[pyclass]
@@ -110,7 +123,10 @@ impl Simple {
 
 #[test]
 fn simple_derived() {
-    assert_eq!(EXPECTED_SIMPLE, format!("{}", InterfaceGenerator::new(Simple::inspect())))
+    assert_eq!(
+        EXPECTED_SIMPLE,
+        format!("{}", InterfaceGenerator::new(Simple::inspect()))
+    )
 }
 
 //endregion
@@ -146,16 +162,14 @@ fn complicated_manual() {
                     name: "value",
                     kind: FieldKind::Setter,
                     py_type: Some(|| TypeInfo::None),
-                    arguments: &[
-                        ArgumentInfo {
-                            name: "value",
-                            kind: ArgumentKind::Position,
-                            py_type: Some(|| TypeInfo::Builtin("int")),
-                            default_value: false,
-                            is_modified: false
-                        }
-                    ],
-                }
+                    arguments: &[ArgumentInfo {
+                        name: "value",
+                        kind: ArgumentKind::Position,
+                        py_type: Some(|| TypeInfo::Builtin("int")),
+                        default_value: false,
+                        is_modified: false,
+                    }],
+                },
             ],
         },
         fields: &[
@@ -177,47 +191,68 @@ fn complicated_manual() {
                         py_type: Some(|| TypeInfo::Any),
                         default_value: false,
                         is_modified: false,
-                    }
+                    },
                 ],
             },
             &FieldInfo {
                 name: "staticmeth",
                 kind: FieldKind::StaticMethod,
-                py_type: Some(|| TypeInfo::Class { module: None, name: "Complicated" }),
-                arguments: &[
-                    ArgumentInfo {
-                        name: "input",
-                        kind: ArgumentKind::PositionOrKeyword,
-                        py_type: Some(|| TypeInfo::Class { module: None, name: "Complicated" }),
-                        default_value: false,
-                        is_modified: false,
-                    }
-                ],
+                py_type: Some(|| TypeInfo::Class {
+                    module: ModuleName::CurrentModule,
+                    name: Cow::Borrowed("Complicated"),
+                    type_vars: vec![],
+                }),
+                arguments: &[ArgumentInfo {
+                    name: "input",
+                    kind: ArgumentKind::PositionOrKeyword,
+                    py_type: Some(|| TypeInfo::Class {
+                        module: ModuleName::CurrentModule,
+                        name: Cow::Borrowed("Complicated"),
+                        type_vars: vec![],
+                    }),
+                    default_value: false,
+                    is_modified: false,
+                }],
             },
             &FieldInfo {
                 name: "classmeth",
                 kind: FieldKind::ClassMethod,
-                py_type: Some(|| TypeInfo::Class { module: None, name: "Complicated" }),
-                arguments: &[
-                    ArgumentInfo {
-                        name: "input",
-                        kind: ArgumentKind::PositionOrKeyword,
-                        py_type: Some(|| TypeInfo::Union(vec![TypeInfo::Class { module: None, name: "Complicated" }, TypeInfo::Builtin("str"), TypeInfo::Builtin("int")])),
-                        default_value: false,
-                        is_modified: false
-                    }
-                ]
+                py_type: Some(|| TypeInfo::Class {
+                    module: ModuleName::CurrentModule,
+                    name: Cow::Borrowed("Complicated"),
+                    type_vars: vec![],
+                }),
+                arguments: &[ArgumentInfo {
+                    name: "input",
+                    kind: ArgumentKind::PositionOrKeyword,
+                    py_type: Some(|| {
+                        TypeInfo::Union(vec![
+                            TypeInfo::Class {
+                                module: ModuleName::CurrentModule,
+                                name: Cow::Borrowed("Complicated"),
+                                type_vars: vec![],
+                            },
+                            TypeInfo::Builtin("str"),
+                            TypeInfo::Builtin("int"),
+                        ])
+                    }),
+                    default_value: false,
+                    is_modified: false,
+                }],
             },
             &FieldInfo {
                 name: "counter",
                 kind: FieldKind::ClassAttribute,
                 py_type: Some(|| TypeInfo::Builtin("int")),
-                arguments: &[]
-            }
+                arguments: &[],
+            },
         ],
     };
 
-    assert_eq!(EXPECTED_COMPLICATED, format!("{}", InterfaceGenerator::new(class)))
+    assert_eq!(
+        EXPECTED_COMPLICATED,
+        format!("{}", InterfaceGenerator::new(class))
+    )
 }
 
 #[pyclass]
@@ -258,7 +293,68 @@ enum ClassMethodInput {
 fn complicated_derived() {
     let inspect = Complicated::inspect();
     println!("Inspection results: {:#?}", inspect);
-    assert_eq!(EXPECTED_COMPLICATED, format!("{}", InterfaceGenerator::new(inspect)))
+    assert_eq!(
+        EXPECTED_COMPLICATED,
+        format!("{}", InterfaceGenerator::new(inspect))
+    )
+}
+
+enum Variants {
+    Empty(Empty),
+    Simple(Simple),
+}
+
+impl IntoPy<PyObject> for Variants {
+    fn into_py(self, py: Python<'_>) -> PyObject {
+        match self {
+            Variants::Empty(r) => r.into_py(py),
+            Variants::Simple(r) => r.into_py(py),
+        }
+    }
+
+    fn type_output() -> TypeInfo {
+        TypeInfo::union_of(&vec![Empty::type_input(), Simple::type_input()])
+    }
+}
+
+// impl From<&PyCell<VariantGen>> for Variants {
+//     fn from(_: &PyCell<VariantGen>) -> Self {
+
+//     }
+// }
+
+impl FromPyObject for Variants {
+    fn extract(ob: &'source PyAny) -> PyResult<Self> {
+        if ob.is_instance_of::<Empty>() {
+            Ok(ob.extract::<Empty>())
+        } else if ob.is_instance_of::<Simple>() {
+            Ok(ob.extract::<Simple>())
+        } else {
+            Err(pyo3::exceptions::PyValueError::new_err("Unsupported"))
+        }
+    }
+
+    fn type_input() -> TypeInfo {
+        TypeInfo::union_of(&vec![Empty::type_input(), Simple::type_input()])
+    }
+}
+
+#[pyclass]
+struct VariantGen {}
+
+impl VariantGen {
+    fn empty(&self) -> Variants {
+        Variants::Empty(Empty {})
+    }
+}
+
+
+#[test]
+fn variants() {
+    let inspect = VariantGen::inspect();
+    println!("{}", InterfaceGenerator::new(inspect));
+
+    assert!(false);
 }
 
 //endregion
