@@ -1,15 +1,13 @@
 #[cfg(feature = "experimental-inspect")]
 use crate::inspect::types::TypeInfo;
-use crate::{types::PyBytes, FromPyObject, IntoPy, PyAny, PyObject, PyResult, Python, ToPyObject};
+use crate::{
+    inspect::types::WithTypeInfo, types::PyBytes, FromPyObject, IntoPy, PyAny, PyObject, PyResult,
+    Python, ToPyObject,
+};
 
 impl<'a> IntoPy<PyObject> for &'a [u8] {
     fn into_py(self, py: Python<'_>) -> PyObject {
         PyBytes::new(py, self).to_object(py)
-    }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        TypeInfo::builtin("bytes")
     }
 }
 
@@ -17,8 +15,13 @@ impl<'a> FromPyObject<'a> for &'a [u8] {
     fn extract(obj: &'a PyAny) -> PyResult<Self> {
         Ok(obj.downcast::<PyBytes>()?.as_bytes())
     }
+}
 
-    #[cfg(feature = "experimental-inspect")]
+#[cfg(feature = "experimental-inspect")]
+impl<'a> WithTypeInfo for &'a [u8] {
+    fn type_output() -> TypeInfo {
+        TypeInfo::builtin("bytes")
+    }
     fn type_input() -> TypeInfo {
         Self::type_output()
     }

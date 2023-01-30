@@ -3,8 +3,40 @@ use std::borrow::Cow;
 #[cfg(feature = "experimental-inspect")]
 use crate::inspect::types::TypeInfo;
 use crate::{
-    types::PyString, FromPyObject, IntoPy, Py, PyAny, PyObject, PyResult, Python, ToPyObject,
+    inspect::types::WithTypeInfo, types::PyString, FromPyObject, IntoPy, Py, PyAny, PyObject,
+    PyResult, Python, ToPyObject,
 };
+
+macro_rules! with_typeinfo_impl {
+    ($ty: ty) => {
+        impl WithTypeInfo for $ty {
+            fn type_input() -> TypeInfo {
+                TypeInfo::builtin("str")
+            }
+            fn type_output() -> TypeInfo {
+                TypeInfo::builtin("str")
+            }
+        }
+    };
+    ($ty: ty, $param: tt) => {
+        impl<$param> WithTypeInfo for & $param $ty {
+            fn type_input() -> TypeInfo {
+                TypeInfo::builtin("str")
+            }
+            fn type_output() -> TypeInfo {
+                TypeInfo::builtin("str")
+            }
+        }
+    }
+}
+
+with_typeinfo_impl!(str);
+with_typeinfo_impl!(char);
+with_typeinfo_impl!(String);
+with_typeinfo_impl!(Cow<'_, str>);
+with_typeinfo_impl!(str, 'a);
+with_typeinfo_impl!(char, 'a);
+with_typeinfo_impl!(String, 'a);
 
 /// Converts a Rust `str` to a Python object.
 /// See `PyString::new` for details on the conversion.
@@ -20,22 +52,12 @@ impl<'a> IntoPy<PyObject> for &'a str {
     fn into_py(self, py: Python<'_>) -> PyObject {
         PyString::new(py, self).into()
     }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        <String>::type_output()
-    }
 }
 
 impl<'a> IntoPy<Py<PyString>> for &'a str {
     #[inline]
     fn into_py(self, py: Python<'_>) -> Py<PyString> {
         PyString::new(py, self).into()
-    }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        <String>::type_output()
     }
 }
 
@@ -52,11 +74,6 @@ impl IntoPy<PyObject> for Cow<'_, str> {
     #[inline]
     fn into_py(self, py: Python<'_>) -> PyObject {
         self.to_object(py)
-    }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        <String>::type_output()
     }
 }
 
@@ -80,21 +97,11 @@ impl IntoPy<PyObject> for char {
         let mut bytes = [0u8; 4];
         PyString::new(py, self.encode_utf8(&mut bytes)).into()
     }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        <String>::type_output()
-    }
 }
 
 impl IntoPy<PyObject> for String {
     fn into_py(self, py: Python<'_>) -> PyObject {
         PyString::new(py, &self).into()
-    }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        TypeInfo::builtin("str")
     }
 }
 
@@ -102,11 +109,6 @@ impl<'a> IntoPy<PyObject> for &'a String {
     #[inline]
     fn into_py(self, py: Python<'_>) -> PyObject {
         PyString::new(py, self).into()
-    }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        <String>::type_output()
     }
 }
 
@@ -116,11 +118,6 @@ impl<'source> FromPyObject<'source> for &'source str {
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         ob.downcast::<PyString>()?.to_str()
     }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_input() -> TypeInfo {
-        <String>::type_input()
-    }
 }
 
 /// Allows extracting strings from Python objects.
@@ -128,11 +125,6 @@ impl<'source> FromPyObject<'source> for &'source str {
 impl FromPyObject<'_> for String {
     fn extract(obj: &PyAny) -> PyResult<Self> {
         obj.downcast::<PyString>()?.to_str().map(ToOwned::to_owned)
-    }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_input() -> TypeInfo {
-        Self::type_output()
     }
 }
 
@@ -147,11 +139,6 @@ impl FromPyObject<'_> for char {
                 "expected a string of length 1",
             ))
         }
-    }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_input() -> TypeInfo {
-        <String>::type_input()
     }
 }
 

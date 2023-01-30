@@ -3,8 +3,8 @@ use std::{cmp, collections, hash};
 #[cfg(feature = "experimental-inspect")]
 use crate::inspect::types::TypeInfo;
 use crate::{
-    types::set::new_from_iter, types::PySet, FromPyObject, IntoPy, PyAny, PyObject, PyResult,
-    Python, ToPyObject,
+    inspect::types::WithTypeInfo, types::set::new_from_iter, types::PySet, FromPyObject, IntoPy,
+    PyAny, PyObject, PyResult, Python, ToPyObject,
 };
 
 impl<T, S> ToPyObject for collections::HashSet<T, S>
@@ -40,10 +40,20 @@ where
             .expect("Failed to create Python set from HashSet")
             .into()
     }
+}
 
-    #[cfg(feature = "experimental-inspect")]
+#[cfg(feature = "experimental-inspect")]
+impl<K, S> WithTypeInfo for collections::HashSet<K, S>
+where
+    K: WithTypeInfo,
+{
     fn type_output() -> TypeInfo {
         TypeInfo::set_of(K::type_output())
+    }
+
+    #[cfg(feature = "experimental-inspect")]
+    fn type_input() -> TypeInfo {
+        TypeInfo::set_of(K::type_input())
     }
 }
 
@@ -56,11 +66,6 @@ where
         let set: &PySet = ob.downcast()?;
         set.iter().map(K::extract).collect()
     }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_input() -> TypeInfo {
-        TypeInfo::set_of(K::type_input())
-    }
 }
 
 impl<K> IntoPy<PyObject> for collections::BTreeSet<K>
@@ -72,11 +77,6 @@ where
             .expect("Failed to create Python set from BTreeSet")
             .into()
     }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        TypeInfo::set_of(K::type_output())
-    }
 }
 
 impl<'source, K> FromPyObject<'source> for collections::BTreeSet<K>
@@ -87,8 +87,16 @@ where
         let set: &PySet = ob.downcast()?;
         set.iter().map(K::extract).collect()
     }
+}
 
-    #[cfg(feature = "experimental-inspect")]
+#[cfg(feature = "experimental-inspect")]
+impl<K> WithTypeInfo for collections::BTreeSet<K>
+where
+    K: WithTypeInfo,
+{
+    fn type_output() -> TypeInfo {
+        TypeInfo::set_of(K::type_output())
+    }
     fn type_input() -> TypeInfo {
         TypeInfo::set_of(K::type_input())
     }

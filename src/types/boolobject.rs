@@ -2,7 +2,7 @@
 #[cfg(feature = "experimental-inspect")]
 use crate::inspect::types::TypeInfo;
 use crate::{
-    ffi, AsPyPointer, FromPyObject, IntoPy, PyAny, PyObject, PyResult, Python, ToPyObject,
+    ffi, AsPyPointer, FromPyObject, IntoPy, PyAny, PyObject, PyResult, Python, ToPyObject, inspect::types::WithTypeInfo,
 };
 
 /// Represents a Python `bool`.
@@ -48,10 +48,6 @@ impl IntoPy<PyObject> for bool {
         PyBool::new(py, self).into()
     }
 
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        TypeInfo::builtin("bool")
-    }
 }
 
 /// Converts a Python `bool` to a Rust `bool`.
@@ -62,7 +58,14 @@ impl<'source> FromPyObject<'source> for bool {
         Ok(obj.downcast::<PyBool>()?.is_true())
     }
 
-    #[cfg(feature = "experimental-inspect")]
+}
+
+#[cfg(feature = "experimental-inspect")]
+impl WithTypeInfo for bool {
+    fn type_output() -> TypeInfo {
+        TypeInfo::builtin("bool")
+    }
+
     fn type_input() -> TypeInfo {
         Self::type_output()
     }

@@ -1,7 +1,8 @@
 use std::{cmp, collections, hash};
 
 #[cfg(feature = "experimental-inspect")]
-use crate::inspect::types::TypeInfo;
+use crate::inspect::types::{WithTypeInfo, TypeInfo};
+
 use crate::{
     types::{IntoPyDict, PyDict},
     FromPyObject, IntoPy, PyAny, PyErr, PyObject, Python, ToPyObject,
@@ -40,12 +41,8 @@ where
             .map(|(k, v)| (k.into_py(py), v.into_py(py)));
         IntoPyDict::into_py_dict(iter, py).into()
     }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        TypeInfo::dict_of(K::type_output(), V::type_output())
-    }
 }
+
 
 impl<K, V> IntoPy<PyObject> for collections::BTreeMap<K, V>
 where
@@ -58,12 +55,8 @@ where
             .map(|(k, v)| (k.into_py(py), v.into_py(py)));
         IntoPyDict::into_py_dict(iter, py).into()
     }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        TypeInfo::dict_of(K::type_output(), V::type_output())
-    }
 }
+
 
 impl<'source, K, V, S> FromPyObject<'source> for collections::HashMap<K, V, S>
 where
@@ -80,10 +73,6 @@ where
         Ok(ret)
     }
 
-    #[cfg(feature = "experimental-inspect")]
-    fn type_input() -> TypeInfo {
-        TypeInfo::mapping_of(K::type_input(), V::type_input())
-    }
 }
 
 impl<'source, K, V> FromPyObject<'source> for collections::BTreeMap<K, V>
@@ -99,12 +88,36 @@ where
         }
         Ok(ret)
     }
+}
 
-    #[cfg(feature = "experimental-inspect")]
+#[cfg(feature = "experimental-inspect")]
+impl<K, V, H> WithTypeInfo for collections::HashMap<K, V, H>
+where
+    K: WithTypeInfo,
+    V: WithTypeInfo,
+{
+    fn type_output() -> TypeInfo {
+        TypeInfo::dict_of(K::type_output(), V::type_output())
+    }
     fn type_input() -> TypeInfo {
         TypeInfo::mapping_of(K::type_input(), V::type_input())
     }
 }
+
+#[cfg(feature = "experimental-inspect")]
+impl<K, V> WithTypeInfo for collections::BTreeMap<K, V>
+where
+    K: WithTypeInfo,
+    V: WithTypeInfo,
+{
+    fn type_output() -> TypeInfo {
+        TypeInfo::dict_of(K::type_output(), V::type_output())
+    }
+    fn type_input() -> TypeInfo {
+        TypeInfo::mapping_of(K::type_input(), V::type_input())
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
