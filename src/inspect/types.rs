@@ -299,6 +299,20 @@ impl Display for TypeInfo {
     }
 }
 
+#[cfg(feature = "experimental-inspect")]
+impl<T: crate::type_object::PyTypeInfo> WithTypeInfo for T {
+    fn type_input() -> TypeInfo {
+        TypeInfo::Class {
+            name: ::std::borrow::Cow::Borrowed(T::NAME),
+            module: T::MODULE
+                .map(Cow::from)
+                .map(ModuleName::Module)
+                .unwrap_or(ModuleName::CurrentModule),
+            type_vars: ::std::vec::Vec::new(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::borrow::Cow;
