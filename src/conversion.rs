@@ -247,18 +247,6 @@ impl<T> ToBorrowedObject for T where T: ToPyObject {}
 pub trait IntoPy<T>: Sized {
     /// Performs the conversion.
     fn into_py(self, py: Python<'_>) -> T;
-
-    /// Extracts the type hint information for this type when it appears as a return value.
-    ///
-    /// For example, `Vec<u32>` would return `List[int]`.
-    /// The default implementation returns `Any`, which is correct for any type.
-    ///
-    /// For most types, the return value for this method will be identical to that of [`FromPyObject::type_input`].
-    /// It may be different for some types, such as `Dict`, to allow duck-typing: functions return `Dict` but take `Mapping` as argument.
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        TypeInfo::Any
-    }
 }
 
 /// Extract a type from a Python object.
@@ -304,18 +292,6 @@ pub trait IntoPy<T>: Sized {
 pub trait FromPyObject<'source>: Sized {
     /// Extracts `Self` from the source `PyObject`.
     fn extract(ob: &'source PyAny) -> PyResult<Self>;
-
-    /// Extracts the type hint information for this type when it appears as an argument.
-    ///
-    /// For example, `Vec<u32>` would return `Sequence[int]`.
-    /// The default implementation returns `Any`, which is correct for any type.
-    ///
-    /// For most types, the return value for this method will be identical to that of [`IntoPy::type_output`].
-    /// It may be different for some types, such as `Dict`, to allow duck-typing: functions return `Dict` but take `Mapping` as argument.
-    #[cfg(feature = "experimental-inspect")]
-    fn type_input() -> TypeInfo {
-        TypeInfo::Any
-    }
 }
 
 /// Identity conversion: allows using existing `PyObject` instances where

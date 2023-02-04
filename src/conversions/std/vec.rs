@@ -1,5 +1,6 @@
 #[cfg(feature = "experimental-inspect")]
 use crate::inspect::types::TypeInfo;
+use crate::inspect::types::WithTypeInfo;
 use crate::types::list::new_from_iter;
 use crate::{IntoPy, PyObject, Python, ToPyObject};
 
@@ -32,9 +33,16 @@ where
         let list = new_from_iter(py, &mut iter);
         list.into()
     }
+}
 
-    #[cfg(feature = "experimental-inspect")]
+#[cfg(feature = "experimental-inspect")]
+impl<T> WithTypeInfo for Vec<T>
+where T: WithTypeInfo {
+    fn type_input() -> TypeInfo {
+        TypeInfo::sequence_of(T::type_input())
+    }
     fn type_output() -> TypeInfo {
         TypeInfo::list_of(T::type_output())
     }
 }
+

@@ -4,7 +4,7 @@
 #[cfg(feature = "experimental-inspect")]
 use crate::inspect::types::TypeInfo;
 use crate::{
-    ffi, AsPyPointer, FromPyObject, IntoPy, PyAny, PyErr, PyObject, PyResult, Python, ToPyObject,
+    ffi, AsPyPointer, FromPyObject, IntoPy, PyAny, PyErr, PyObject, PyResult, Python, ToPyObject, inspect::types::WithTypeInfo,
 };
 use std::os::raw::c_double;
 
@@ -46,11 +46,6 @@ impl IntoPy<PyObject> for f64 {
     fn into_py(self, py: Python<'_>) -> PyObject {
         PyFloat::new(py, self).into()
     }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        TypeInfo::builtin("float")
-    }
 }
 
 impl<'source> FromPyObject<'source> for f64 {
@@ -68,7 +63,13 @@ impl<'source> FromPyObject<'source> for f64 {
         Ok(v)
     }
 
-    #[cfg(feature = "experimental-inspect")]
+}
+
+#[cfg(feature = "experimental-inspect")]
+impl WithTypeInfo for f64 {
+    fn type_output() -> TypeInfo {
+        TypeInfo::builtin("float")
+    }
     fn type_input() -> TypeInfo {
         Self::type_output()
     }
@@ -84,11 +85,6 @@ impl IntoPy<PyObject> for f32 {
     fn into_py(self, py: Python<'_>) -> PyObject {
         PyFloat::new(py, f64::from(self)).into()
     }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        TypeInfo::builtin("float")
-    }
 }
 
 impl<'source> FromPyObject<'source> for f32 {
@@ -96,7 +92,13 @@ impl<'source> FromPyObject<'source> for f32 {
         Ok(obj.extract::<f64>()? as f32)
     }
 
-    #[cfg(feature = "experimental-inspect")]
+}
+
+#[cfg(feature = "experimental-inspect")]
+impl WithTypeInfo for f32 {
+    fn type_output() -> TypeInfo {
+        TypeInfo::builtin("float")
+    }
     fn type_input() -> TypeInfo {
         Self::type_output()
     }

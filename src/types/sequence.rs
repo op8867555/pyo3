@@ -291,10 +291,6 @@ where
         extract_sequence(obj)
     }
 
-    #[cfg(feature = "experimental-inspect")]
-    fn type_input() -> TypeInfo {
-        TypeInfo::sequence_of(T::type_input())
-    }
 }
 
 fn extract_sequence<'s, T>(obj: &'s PyAny) -> PyResult<Vec<T>>

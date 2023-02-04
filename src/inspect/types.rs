@@ -3,6 +3,34 @@
 use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 
+pub trait WithTypeInfo {
+    /// Extracts the type hint information for this type when it appears as a return value.
+    ///
+    /// For example, `Vec<u32>` would return `List[int]`.
+    /// The default implementation returns `Any`, which is correct for any type.
+    ///
+    /// For most types, the return value for this method will be identical to that of [`WithTypeInfo::type_input`].
+    /// It may be different for some types, such as `Dict`, to allow duck-typing: functions return `Dict` but take `Mapping` as argument.
+    #[cfg(feature = "experimental-inspect")]
+    fn type_output() -> TypeInfo {
+        TypeInfo::Any
+   }
+
+    /// Extracts the type hint information for this type when it appears as an argument.
+    ///
+    /// For example, `Vec<u32>` would return `Sequence[int]`.
+    /// The default implementation returns `Any`, which is correct for any type.
+    ///
+    /// For most types, the return value for this method will be identical to that of [`WithTypeInfo::type_output`].
+    /// It may be different for some types, such as `Dict`, to allow duck-typing: functions return `Dict` but take `Mapping` as argument.
+    #[cfg(feature = "experimental-inspect")]
+    fn type_input() -> TypeInfo {
+        TypeInfo::Any
+    }
+ }
+
+
+
 /// Designation of a Python type.
 ///
 /// This enum is used to handle advanced types, such as types with generics.
@@ -286,6 +314,20 @@ impl Display for TypeInfo {
     }
 }
 
+#[cfg(feature = "experimental-inspect")]
+impl<T: crate::type_object::PyTypeInfo> WithTypeInfo for T {
+    fn type_input() -> TypeInfo {
+        TypeInfo::Class {
+            name: ::std::borrow::Cow::Borrowed(T::NAME),
+            module: T::MODULE
+                .map(Cow::from)
+                .map(ModuleName::Module)
+                .unwrap_or(ModuleName::CurrentModule),
+            type_vars: ::std::vec::Vec::new(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::borrow::Cow;
@@ -420,6 +462,7 @@ mod conversion {
     use std::collections::{HashMap, HashSet};
 
     use crate::inspect::types::test::assert_display;
+    use crate::inspect::types::WithTypeInfo;
     use crate::{FromPyObject, IntoPy};
 
     #[test]
