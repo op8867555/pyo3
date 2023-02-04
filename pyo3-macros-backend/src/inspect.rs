@@ -29,7 +29,7 @@ pub(crate) fn generate_class_inspection(
 
     let mut fields: Vec<TokenStream> = vec![];
     for (field, options) in field_options {
-        let typ = generate_type(&field.ty)
+        let typ = generate_type(cls.to_string().as_str(), &field.ty)
             .map(|it| Box::new(it) as Box<dyn ToTokens>)
             .unwrap_or_else(|| Box::new(cls));
         let name = options.name.as_ref()
@@ -129,6 +129,13 @@ pub(crate) fn generate_fields_inspection(
     cls: &Type,
     field: &PyMethod<'_>
 ) -> (TokenStream, Ident) {
+    let class_name = match cls {
+        Type::Path(path) => {
+            path.path.segments.iter().map(|s| s.ident.to_string()).reduce(|x, y| x + &y).unwrap()
+        }
+        _ => unreachable!()
+    };
+
     let ident_prefix = generate_unique_ident(cls, Some(field.spec.name));
 
     let field_info_name = format_ident!("{}_info", ident_prefix);
@@ -146,14 +153,14 @@ pub(crate) fn generate_fields_inspection(
         FnType::FnModule => todo!("FnModule is not currently supported"),
         FnType::ClassAttribute => quote!(_pyo3::inspect::fields::FieldKind::ClassAttribute),
     };
-    let field_type = generate_type(&field.spec.output)
+    let field_type = generate_type(&class_name, &field.spec.output)
         .map(|it| it.to_token_stream())
         .unwrap_or_else(|| cls.to_token_stream());
 
     let mut args: Vec<TokenStream> = vec![];
     for arg in &field.spec.signature.arguments {
         let name = Literal::string(&*arg.name.to_string());
-        let typ = generate_type(arg.ty)
+        let typ = generate_type(&class_name, arg.ty)
             .map(|it| it.to_token_stream())
             .unwrap_or_else(|| cls.to_token_stream());
 
@@ -191,12 +198,87 @@ pub(crate) fn generate_fields_inspection(
     (output, field_info_name)
 }
 
-fn generate_type(target: &Type) -> Option<impl ToTokens + '_> {
+fn generate_type(cls: &str, target: &Type) -> Option<Type> {
+    use syn::punctuated::*;
+    use syn::*;
     match target {
-        Type::Path(path) if path.path.get_ident().filter(|i| i.to_string() == "Self").is_some() => {
-            None
+        Type::Path(path)
+            if path
+                .path
+                .get_ident()
+                .filter(|i| i.to_string() == "Self")
+                .is_some() =>
+        {
+            Some(Type::Path(TypePath {
+                qself: None,
+                path: Path {
+                    leading_colon: None,
+                    segments: IntoIterator::into_iter([PathSegment {
+                        ident: format_ident!("{}", cls),
+                        arguments: PathArguments::None,
+                    }])
+                    .collect(),
+                },
+            }))
         }
-        other => Some(other)
+        Type::Path(TypePath {
+            qself,
+            path: Path {
+                leading_colon,
+                segments,
+            },
+        }) => Some(Type::Path(TypePath {
+            qself: qself.clone(),
+            path: Path {
+                leading_colon: leading_colon.clone(),
+                segments: segments
+                    .iter()
+                    .map(|x| match x {
+                        PathSegment { ident, arguments } => PathSegment {
+                            ident: ident.clone(),
+                            arguments: match arguments {
+                                PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+                                    colon2_token,
+                                    lt_token,
+                                    args,
+                                    gt_token,
+                                }) => {
+                                    PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+                                        colon2_token: colon2_token.clone(),
+                                        lt_token: lt_token.clone(),
+                                        args: args
+                                            .clone()
+                                            .iter()
+                                            .map(|t| match t {
+                                                GenericArgument::Type(t) => GenericArgument::Type(
+                                                    generate_type(cls, t).unwrap(),
+                                                ),
+                                                o => o.clone(),
+                                            })
+                                            .collect(),
+
+                                        gt_token: gt_token.clone(),
+                                    })
+                                }
+                                o => o.clone(),
+                            },
+                        },
+                    })
+                    .collect(),
+            },
+        })),
+        Type::Reference(syn::TypeReference {
+            and_token,
+            lifetime: _,
+            mutability,
+            elem,
+        }) => Some(Type::Reference(syn::TypeReference {
+            and_token: *and_token,
+            lifetime: None,
+            mutability: *mutability,
+            elem: Box::new(generate_type(cls, elem)?),
+        })),
+        other => Some(other.clone()),
     }
 }
 
