@@ -166,15 +166,17 @@ pub(crate) fn generate_fields_inspection(
 
         let is_mutable = arg.mutability.is_some();
 
-        args.push(quote! {
-            _pyo3::inspect::fields::ArgumentInfo {
-                name: #name,
-                kind: _pyo3::inspect::fields::ArgumentKind::PositionOrKeyword, //TODO
-                py_type: ::std::option::Option::Some(|| <#typ as _pyo3::conversion::FromPyObject>::type_input()),
-                default_value: false,
-                is_modified: #is_mutable,
-            }
-        });
+        if &*arg.name.to_string() != "py" {
+            args.push(quote! {
+                _pyo3::inspect::fields::ArgumentInfo {
+                    name: #name,
+                    kind: _pyo3::inspect::fields::ArgumentKind::PositionOrKeyword, //TODO
+                    py_type: ::std::option::Option::Some(|| <#typ as _pyo3::conversion::FromPyObject>::type_input()),
+                    default_value: false,
+                    is_modified: #is_mutable,
+                }
+            });
+        }
     }
     let args_size = Literal::usize_suffixed(args.len());
 
