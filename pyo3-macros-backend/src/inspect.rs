@@ -192,7 +192,7 @@ pub(crate) fn generate_fields_inspection(
         const #field_info_name: _pyo3::inspect::fields::FieldInfo<'static> = _pyo3::inspect::fields::FieldInfo {
             name: #field_name,
             kind: #field_kind,
-            py_type: Some(#field_type_fn_name),
+            py_type: ::std::option::Option::Some(#field_type_fn_name),
             arguments: &#field_args_name,
         };
     };
