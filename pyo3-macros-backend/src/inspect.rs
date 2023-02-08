@@ -153,9 +153,13 @@ pub(crate) fn generate_fields_inspection(
         FnType::FnModule => todo!("FnModule is not currently supported"),
         FnType::ClassAttribute => quote!(_pyo3::inspect::fields::FieldKind::ClassAttribute),
     };
-    let field_type = generate_type(&class_name, &field.spec.output)
-        .map(|it| it.to_token_stream())
-        .unwrap_or_else(|| cls.to_token_stream());
+    let field_type = if !matches!(&field.spec.output, Type::Infer(_)) {
+        generate_type(&class_name, &field.spec.output)
+            .map(|it| it.to_token_stream())
+            .unwrap_or_else(|| cls.to_token_stream())
+    } else {
+        quote! {()}
+    };
 
     let mut args: Vec<TokenStream> = vec![];
     for arg in &field.spec.signature.arguments {
