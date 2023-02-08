@@ -751,6 +751,9 @@ fn impl_pytypeinfo(
     };
 
     quote! {
+        impl _pyo3::inspect::types::WithTypeInfo for #cls {
+        }
+
         unsafe impl _pyo3::type_object::PyTypeInfo for #cls {
             type AsRefTarget = _pyo3::PyCell<Self>;
 
