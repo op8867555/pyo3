@@ -21,13 +21,16 @@
 //!
 //! Note that you must use compatible versions of hashbrown and PyO3.
 //! The required hashbrown version may vary based on the version of PyO3.
+
 use crate::{
     types::set::new_from_iter,
     types::{IntoPyDict, PyDict, PySet},
     FromPyObject, IntoPy, PyAny, PyErr, PyObject, PyResult, Python, ToPyObject,
 };
+#[cfg(feature = "experimental-inspect")]
+use crate::inspect::types::{WithTypeInfo, TypeInfo};
+
 use std::{cmp, hash};
-use crate::inspect::types::TypeInfo;
 
 impl<K, V, H> ToPyObject for hashbrown::HashMap<K, V, H>
 where
@@ -52,10 +55,6 @@ where
             .map(|(k, v)| (k.into_py(py), v.into_py(py)));
         IntoPyDict::into_py_dict(iter, py).into()
     }
-
-    fn type_output() -> TypeInfo {
-        TypeInfo::Dict(Box::new(K::type_output()), Box::new(V::type_output()))
-    }
 }
 
 impl<'source, K, V, S> FromPyObject<'source> for hashbrown::HashMap<K, V, S>
@@ -71,10 +70,6 @@ where
             ret.insert(K::extract(k)?, V::extract(v)?);
         }
         Ok(ret)
-    }
-
-    fn type_input() -> TypeInfo {
-        TypeInfo::Mapping(Box::new(K::type_input()), Box::new(V::type_input()))
     }
 }
 
@@ -99,10 +94,6 @@ where
             .expect("Failed to create Python set from hashbrown::HashSet")
             .into()
     }
-
-    fn type_output() -> TypeInfo {
-        TypeInfo::Set(Box::new(K::type_output()))
-    }
 }
 
 impl<'source, K, S> FromPyObject<'source> for hashbrown::HashSet<K, S>
@@ -113,6 +104,31 @@ where
     fn extract(ob: &'source PyAny) -> PyResult<Self> {
         let set: &PySet = ob.downcast()?;
         set.iter().map(K::extract).collect()
+    }
+}
+
+#[cfg(feature = "experimental-inspect")]
+impl<K, V, S> WithTypeInfo for hashbrown::HashMap<K, V, S>
+where
+    K: WithTypeInfo,
+    V: WithTypeInfo,
+{
+    fn type_input() -> TypeInfo {
+        TypeInfo::Mapping(Box::new(K::type_input()), Box::new(V::type_input()))
+    }
+
+    fn type_output() -> TypeInfo {
+        TypeInfo::Dict(Box::new(K::type_output()), Box::new(V::type_output()))
+    }
+}
+
+#[cfg(feature = "experimental-inspect")]
+impl<K, S> WithTypeInfo for hashbrown::HashSet<K, S>
+where
+    K: WithTypeInfo,
+{
+    fn type_output() -> TypeInfo {
+        TypeInfo::Set(Box::new(K::type_output()))
     }
 
     fn type_input() -> TypeInfo {

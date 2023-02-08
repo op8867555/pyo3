@@ -41,11 +41,6 @@ mod min_const_generics {
                 list
             }
         }
-
-        #[cfg(feature = "experimental-inspect")]
-        fn type_output() -> TypeInfo {
-            TypeInfo::List(Box::new(T::type_output()))
-        }
     }
 
     impl<T, const N: usize> ToPyObject for [T; N]
@@ -63,11 +58,6 @@ mod min_const_generics {
     {
         fn extract(obj: &'a PyAny) -> PyResult<Self> {
             create_array_from_obj(obj)
-        }
-
-        #[cfg(feature = "experimental-inspect")]
-        fn type_input() -> TypeInfo {
-            TypeInfo::Sequence(Box::new(T::type_input()))
         }
     }
 

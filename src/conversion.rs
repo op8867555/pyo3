@@ -322,11 +322,6 @@ where
     fn into_py(self, py: Python<'_>) -> PyObject {
         self.map_or_else(|| py.None(), |val| val.into_py(py))
     }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        TypeInfo::Optional(Box::new(T::type_output()))
-    }
 }
 
 /// `()` is converted to Python `None`.
@@ -339,11 +334,6 @@ impl ToPyObject for () {
 impl IntoPy<PyObject> for () {
     fn into_py(self, py: Python<'_>) -> PyObject {
         py.None()
-    }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        TypeInfo::None
     }
 }
 
@@ -364,18 +354,6 @@ where
     fn extract(obj: &'a PyAny) -> PyResult<Self> {
         PyTryFrom::try_from(obj).map_err(Into::into)
     }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_input() -> TypeInfo {
-        TypeInfo::Class {
-            module: T::MODULE
-                .map(Cow::Borrowed)
-                .map(ModuleName::Module)
-                .unwrap_or(ModuleName::CurrentModule),
-            name: Cow::Borrowed(T::NAME),
-            type_vars: vec![],
-        }
-    }
 }
 
 impl<'a, T> FromPyObject<'a> for T
@@ -385,18 +363,6 @@ where
     fn extract(obj: &'a PyAny) -> PyResult<Self> {
         let cell: &PyCell<Self> = PyTryFrom::try_from(obj)?;
         Ok(unsafe { cell.try_borrow_unguarded()?.clone() })
-    }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_input() -> TypeInfo {
-        TypeInfo::Class {
-            module: T::MODULE
-                .map(Cow::Borrowed)
-                .map(ModuleName::Module)
-                .unwrap_or(ModuleName::CurrentModule),
-            name: Cow::Borrowed(T::NAME),
-            type_vars: vec![],
-        }
     }
 }
 
@@ -408,18 +374,6 @@ where
         let cell: &PyCell<T> = PyTryFrom::try_from(obj)?;
         cell.try_borrow().map_err(Into::into)
     }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_input() -> TypeInfo {
-        TypeInfo::Class {
-            module: T::MODULE
-                .map(Cow::Borrowed)
-                .map(ModuleName::Module)
-                .unwrap_or(ModuleName::CurrentModule),
-            name: Cow::Borrowed(T::NAME),
-            type_vars: vec![],
-        }
-    }
 }
 
 impl<'a, T> FromPyObject<'a> for PyRefMut<'a, T>
@@ -429,18 +383,6 @@ where
     fn extract(obj: &'a PyAny) -> PyResult<Self> {
         let cell: &PyCell<T> = PyTryFrom::try_from(obj)?;
         cell.try_borrow_mut().map_err(Into::into)
-    }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_input() -> TypeInfo {
-        TypeInfo::Class {
-            module: T::MODULE
-                .map(Cow::Borrowed)
-                .map(ModuleName::Module)
-                .unwrap_or(ModuleName::CurrentModule),
-            name: Cow::Borrowed(T::NAME),
-            type_vars: vec![],
-        }
     }
 }
 
@@ -454,11 +396,6 @@ where
         } else {
             T::extract(obj).map(Some)
         }
-    }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_input() -> TypeInfo {
-        TypeInfo::Optional(Box::new(T::type_input()))
     }
 }
 
@@ -571,11 +508,6 @@ where
 impl IntoPy<Py<PyTuple>> for () {
     fn into_py(self, py: Python<'_>) -> Py<PyTuple> {
         PyTuple::empty(py).into()
-    }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        TypeInfo::Tuple(Some(vec![]))
     }
 }
 

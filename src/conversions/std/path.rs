@@ -39,11 +39,6 @@ impl<'a> IntoPy<PyObject> for &'a Path {
     fn into_py(self, py: Python<'_>) -> PyObject {
         self.as_os_str().to_object(py)
     }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        <&OsStr>::type_output()
-    }
 }
 
 impl<'a> ToPyObject for Cow<'a, Path> {
@@ -58,11 +53,6 @@ impl<'a> IntoPy<PyObject> for Cow<'a, Path> {
     fn into_py(self, py: Python<'_>) -> PyObject {
         self.to_object(py)
     }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        <&OsStr>::type_output()
-    }
 }
 
 impl ToPyObject for PathBuf {
@@ -76,21 +66,11 @@ impl IntoPy<PyObject> for PathBuf {
     fn into_py(self, py: Python<'_>) -> PyObject {
         self.into_os_string().to_object(py)
     }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        <OsString>::type_output()
-    }
 }
 
 impl<'a> IntoPy<PyObject> for &'a PathBuf {
     fn into_py(self, py: Python<'_>) -> PyObject {
         self.as_os_str().to_object(py)
-    }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        <&OsStr>::type_output()
     }
 }
 

@@ -679,18 +679,6 @@ impl<T: PyClass> IntoPy<PyObject> for PyRef<'_, T> {
     fn into_py(self, py: Python<'_>) -> PyObject {
         unsafe { PyObject::from_borrowed_ptr(py, self.inner.as_ptr()) }
     }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        TypeInfo::Class {
-            module: T::MODULE
-                .map(Cow::Borrowed)
-                .map(ModuleName::Module)
-                .unwrap_or(ModuleName::CurrentModule),
-            name: Cow::Borrowed(T::NAME),
-            type_vars: vec![],
-        }
-    }
 }
 
 impl<'a, T: PyClass> std::convert::TryFrom<&'a PyCell<T>> for crate::PyRef<'a, T> {
@@ -788,18 +776,6 @@ impl<'p, T: PyClass<Frozen = False>> Drop for PyRefMut<'p, T> {
 impl<T: PyClass<Frozen = False>> IntoPy<PyObject> for PyRefMut<'_, T> {
     fn into_py(self, py: Python<'_>) -> PyObject {
         unsafe { PyObject::from_borrowed_ptr(py, self.inner.as_ptr()) }
-    }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        TypeInfo::Class {
-            module: T::MODULE
-                .map(Cow::Borrowed)
-                .map(ModuleName::Module)
-                .unwrap_or(ModuleName::CurrentModule),
-            name: Cow::Borrowed(T::NAME),
-            type_vars: vec![],
-        }
     }
 }
 

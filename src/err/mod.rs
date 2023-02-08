@@ -727,11 +727,6 @@ impl IntoPy<PyObject> for PyErr {
     fn into_py(self, py: Python<'_>) -> PyObject {
         self.into_value(py).into()
     }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        TypeInfo::Builtin("Exception")
-    }
 }
 
 impl ToPyObject for PyErr {
@@ -743,11 +738,6 @@ impl ToPyObject for PyErr {
 impl<'a> IntoPy<PyObject> for &'a PyErr {
     fn into_py(self, py: Python<'_>) -> PyObject {
         self.clone_ref(py).into_py(py)
-    }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        <PyErr>::type_output()
     }
 }
 

@@ -42,7 +42,7 @@ pub(crate) fn generate_class_inspection(
                     &_pyo3::inspect::fields::FieldInfo {
                         name: #name,
                         kind: _pyo3::inspect::fields::FieldKind::Getter,
-                        py_type: ::std::option::Option::Some(|| <#typ as _pyo3::conversion::IntoPy<_>>::type_output()),
+                        py_type: ::std::option::Option::Some(|| <#typ as _pyo3::inspect::types::WithTypeInfo>::type_output()),
                         arguments: &[],
                     }
                 });
@@ -58,7 +58,7 @@ pub(crate) fn generate_class_inspection(
                             _pyo3::inspect::fields::ArgumentInfo {
                                 name: #name,
                                 kind: _pyo3::inspect::fields::ArgumentKind::Position,
-                                py_type: ::std::option::Option::Some(|| <#typ as _pyo3::conversion::IntoPy<_>>::type_output()),
+                                py_type: ::std::option::Option::Some(|| <#typ as _pyo3::inspect::types::WithTypeInfo>::type_output()),
                                 default_value: false,
                                 is_modified: false,
                             }
@@ -171,7 +171,7 @@ pub(crate) fn generate_fields_inspection(
                 _pyo3::inspect::fields::ArgumentInfo {
                     name: #name,
                     kind: _pyo3::inspect::fields::ArgumentKind::PositionOrKeyword, //TODO
-                    py_type: ::std::option::Option::Some(|| <#typ as _pyo3::conversion::FromPyObject>::type_input()),
+                    py_type: ::std::option::Option::Some(|| <#typ as _pyo3::inspect::types::WithTypeInfo>::type_input()),
                     default_value: false,
                     is_modified: #is_mutable,
                 }
@@ -182,7 +182,7 @@ pub(crate) fn generate_fields_inspection(
 
     let output = quote! {
         fn #field_type_fn_name() -> _pyo3::inspect::types::TypeInfo {
-            <#field_type as _pyo3::conversion::IntoPy<_>>::type_output()
+            <#field_type as _pyo3::inspect::types::WithTypeInfo>::type_output()
         }
 
         const #field_args_name: [_pyo3::inspect::fields::ArgumentInfo<'static>; #args_size] = [

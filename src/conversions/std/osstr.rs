@@ -116,11 +116,6 @@ impl IntoPy<PyObject> for &'_ OsStr {
     fn into_py(self, py: Python<'_>) -> PyObject {
         self.to_object(py)
     }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        TypeInfo::Builtin("str")
-    }
 }
 
 impl ToPyObject for Cow<'_, OsStr> {
@@ -135,11 +130,6 @@ impl IntoPy<PyObject> for Cow<'_, OsStr> {
     fn into_py(self, py: Python<'_>) -> PyObject {
         self.to_object(py)
     }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        TypeInfo::Builtin("str")
-    }
 }
 
 impl ToPyObject for OsString {
@@ -153,21 +143,11 @@ impl IntoPy<PyObject> for OsString {
     fn into_py(self, py: Python<'_>) -> PyObject {
         self.to_object(py)
     }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        TypeInfo::Builtin("str")
-    }
 }
 
 impl<'a> IntoPy<PyObject> for &'a OsString {
     fn into_py(self, py: Python<'_>) -> PyObject {
         self.to_object(py)
-    }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        TypeInfo::Builtin("str")
     }
 }
 

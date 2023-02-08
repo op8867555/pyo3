@@ -314,8 +314,7 @@ impl Display for TypeInfo {
     }
 }
 
-#[cfg(feature = "experimental-inspect")]
-impl<T: crate::type_object::PyTypeInfo> WithTypeInfo for T {
+impl<T: crate::type_object::PyTypeInfo> WithTypeInfo for &T {
     fn type_input() -> TypeInfo {
         TypeInfo::Class {
             name: ::std::borrow::Cow::Borrowed(T::NAME),
@@ -325,6 +324,70 @@ impl<T: crate::type_object::PyTypeInfo> WithTypeInfo for T {
                 .unwrap_or(ModuleName::CurrentModule),
             type_vars: ::std::vec::Vec::new(),
         }
+    }
+
+    fn type_output() -> TypeInfo {
+        Self::type_input()
+    }
+}
+
+impl WithTypeInfo for () {
+    fn type_output() -> TypeInfo {
+        TypeInfo::None
+    }
+
+    fn type_input() -> TypeInfo {
+        TypeInfo::None
+    }
+}
+
+impl<T> WithTypeInfo for crate::PyRef<'_, T>
+where
+    T: crate::PyClass,
+{
+    fn type_input() -> TypeInfo {
+        TypeInfo::Class {
+            name: ::std::borrow::Cow::Borrowed(T::NAME),
+            module: T::MODULE
+                .map(Cow::from)
+                .map(ModuleName::Module)
+                .unwrap_or(ModuleName::CurrentModule),
+            type_vars: ::std::vec::Vec::new(),
+        }
+    }
+
+    fn type_output() -> TypeInfo {
+        Self::type_input()
+    }
+}
+
+impl<T: WithTypeInfo> WithTypeInfo for Option<T> {
+    fn type_output() -> TypeInfo {
+        TypeInfo::Optional(Box::new(T::type_output()))
+    }
+
+    fn type_input() -> TypeInfo {
+        TypeInfo::Optional(Box::new(T::type_input()))
+    }
+}
+
+impl<T: WithTypeInfo, E> WithTypeInfo for Result<T, E> {
+    fn type_output() -> TypeInfo {
+        T::type_output()
+    }
+
+    fn type_input() -> TypeInfo {
+        T::type_input()
+    }
+}
+
+impl<T: WithTypeInfo> WithTypeInfo for crate::Py<T> {
+    fn type_output() -> TypeInfo {
+        T::type_output()
+    }
+
+    fn type_input() -> TypeInfo {
+        T::type_input()
     }
 }
 

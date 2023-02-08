@@ -963,18 +963,6 @@ where
                 .map(|val| Py::from_borrowed_ptr(ob.py(), val.as_ptr()))
         }
     }
-
-    #[cfg(feature = "experimental-inspect")]
-    fn type_input() -> TypeInfo {
-        TypeInfo::Class {
-            module: T::MODULE
-                .map(Cow::Borrowed)
-                .map(ModuleName::Module)
-                .unwrap_or(ModuleName::CurrentModule),
-            name: Cow::Borrowed(T::NAME),
-            type_vars: vec![],
-        }
-    }
 }
 
 /// `Py<T>` can be used as an error when T is an Error.

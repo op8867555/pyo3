@@ -97,6 +97,9 @@ use crate::{FromPyObject, IntoPy, PyErr, PyObject, Python, ToPyObject};
 use std::{cmp, hash};
 use crate::inspect::types::TypeInfo;
 
+#[cfg(feature = "experimental-inspect")]
+use crate::inspect::types::WithTypeInfo;
+
 impl<K, V, H> ToPyObject for indexmap::IndexMap<K, V, H>
 where
     K: hash::Hash + cmp::Eq + ToPyObject,
@@ -120,10 +123,6 @@ where
             .map(|(k, v)| (k.into_py(py), v.into_py(py)));
         IntoPyDict::into_py_dict(iter, py).into()
     }
-
-    fn type_output() -> TypeInfo {
-        TypeInfo::Dict(Box::new(K::type_output()), Box::new(V::type_output()))
-    }
 }
 
 impl<'source, K, V, S> FromPyObject<'source> for indexmap::IndexMap<K, V, S>
@@ -141,8 +140,18 @@ where
         Ok(ret)
     }
 
+}
+
+#[cfg(feature = "experimental-inspect")]
+impl<K, V, S> WithTypeInfo for indexmap::IndexMap<K, V, S>
+where K: WithTypeInfo, V: WithTypeInfo
+{
     fn type_input() -> TypeInfo {
         TypeInfo::Dict(Box::new(K::type_input()), Box::new(V::type_input()))
+    }
+
+    fn type_output() -> TypeInfo {
+        TypeInfo::Dict(Box::new(K::type_output()), Box::new(V::type_output()))
     }
 }
 
