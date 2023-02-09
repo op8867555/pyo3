@@ -751,7 +751,24 @@ fn impl_pytypeinfo(
     };
 
     quote! {
+        // XXX: Not sure why blanket impl<T:PyTypeInfo> not working for pyclasses,
+        // So I generate WithTypeInfo for them here
+        use ::std::convert::From;
         impl _pyo3::inspect::types::WithTypeInfo for #cls {
+            fn type_output() -> _pyo3::inspect::types::TypeInfo  {
+                _pyo3::inspect::types::TypeInfo::Class {
+                    name: ::std::borrow::Cow::from(#cls_name),
+                    module: _pyo3::inspect::types::ModuleName::Builtin,
+                    type_vars: ::std::vec::Vec::new(),
+                }
+            }
+            fn type_input() -> _pyo3::inspect::types::TypeInfo  {
+                _pyo3::inspect::types::TypeInfo::Class {
+                    name: ::std::borrow::Cow::from(#cls_name),
+                    module: _pyo3::inspect::types::ModuleName::Builtin,
+                    type_vars: ::std::vec::Vec::new(),
+                }
+            }
         }
 
         unsafe impl _pyo3::type_object::PyTypeInfo for #cls {
