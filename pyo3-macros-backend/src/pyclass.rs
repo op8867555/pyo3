@@ -23,7 +23,7 @@ use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::{parse_quote, spanned::Spanned, Result, Token};
-use crate::inspect::generate_class_inspection;
+use crate::inspect::{generate_class_inspection, generate_class_fields};
 
 /// If the class is derived from a Rust `struct` or `enum`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -354,7 +354,8 @@ fn impl_class(
 ) -> syn::Result<TokenStream> {
     let pytypeinfo_impl = impl_pytypeinfo(cls, args, Some(&args.options.deprecations));
 
-    let class_info = generate_class_inspection(cls, args, &field_options);
+    // let class_info = generate_class_inspection(cls, args, &field_options);
+    let field_infos = generate_class_fields(cls, args, &field_options);
 
     let py_class_impl = PyClassImplsBuilder::new(
         cls,
@@ -362,6 +363,7 @@ fn impl_class(
         methods_type,
         descriptors_to_items(cls, field_options)?,
         vec![],
+        field_infos,
     )
     .doc(doc)
     .impl_all()?;
@@ -374,7 +376,7 @@ fn impl_class(
 
             #py_class_impl
 
-            #class_info
+            // #class_info
         };
     })
 }
@@ -620,6 +622,7 @@ fn impl_enum_class(
         methods_type,
         enum_default_methods(cls, variants.iter().map(|v| (v.ident, v.python_name()))),
         default_slots,
+        vec![],
     )
     .doc(doc)
     .impl_all()?;
@@ -802,6 +805,7 @@ struct PyClassImplsBuilder<'a> {
     methods_type: PyClassMethodsType,
     default_methods: Vec<MethodAndMethodDef>,
     default_slots: Vec<MethodAndSlotDef>,
+    field_infos: Vec<TokenStream>,
     doc: Option<PythonDoc>,
 }
 
@@ -812,6 +816,7 @@ impl<'a> PyClassImplsBuilder<'a> {
         methods_type: PyClassMethodsType,
         default_methods: Vec<MethodAndMethodDef>,
         default_slots: Vec<MethodAndSlotDef>,
+        field_infos: Vec<TokenStream>,
     ) -> Self {
         Self {
             cls,
@@ -819,6 +824,7 @@ impl<'a> PyClassImplsBuilder<'a> {
             methods_type,
             default_methods,
             default_slots,
+            field_infos,
             doc: None,
         }
     }
@@ -1001,6 +1007,8 @@ impl<'a> PyClassImplsBuilder<'a> {
         let default_slot_defs = self.default_slots.iter().map(|slot| &slot.slot_def);
         let freelist_slots = self.freelist_slots();
 
+        let field_infos = self.field_infos.iter().clone();
+
         let deprecations = &self.attr.deprecations;
 
         let class_mutability = if self.attr.options.frozen.is_some() {
@@ -1058,6 +1066,7 @@ impl<'a> PyClassImplsBuilder<'a> {
                     static INTRINSIC_ITEMS: PyClassItems = PyClassItems {
                         methods: &[#(#default_method_defs),*],
                         slots: &[#(#default_slot_defs),* #(#freelist_slots),*],
+                        field_infos: &[#(#field_infos),*],
                     };
                     PyClassItemsIter::new(&INTRINSIC_ITEMS, #pymethods_items)
                 }

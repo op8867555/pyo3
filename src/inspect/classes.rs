@@ -1,32 +1,32 @@
-use crate::inspect::fields::FieldInfo;
+use crate::{impl_::pyclass::PyClassImpl, inspect::fields::FieldInfo, PyTypeInfo};
 
 /// Information about a Python class.
 #[derive(Debug)]
-pub struct ClassInfo<'a> {
+pub struct ClassInfo {
     /// Base information about the class.
-    pub class: &'a ClassStructInfo<'a>,
+    pub class: ClassStructInfo,
 
     /// Information found in `#[pymethods]`.
-    pub fields: &'a [&'a FieldInfo<'a>],
+    pub fields: Vec<&'static FieldInfo<'static>>,
 }
 
 /// Subset of available information about a Python class, including only what is available by parsing the `#[pyclass]`
 /// block (methods are missing).
 #[derive(Debug)]
-pub struct ClassStructInfo<'a> {
-    pub name: &'a str,
-    pub base: Option<&'a str>,
-    pub fields: &'a [&'a FieldInfo<'a>],
+pub struct ClassStructInfo {
+    pub name: &'static str,
+    pub base: Option<&'static str>,
+    pub fields: Vec<&'static FieldInfo<'static>>,
 }
 
-impl<'a> ClassInfo<'a> {
+impl ClassInfo {
     /// The Python name of this class.
-    pub fn name(&'a self) -> &'a str {
+    pub fn name(&self) -> &str {
         self.class.name
     }
 
     /// The Python's base class.
-    pub fn base(&'a self) -> Option<&'a str> {
+    pub fn base(&self) -> Option<&'static str> {
         self.class.base
     }
 
@@ -35,32 +35,51 @@ impl<'a> ClassInfo<'a> {
     /// This includes:
     /// - struct attributes annotated with `#[getter]` or `#[setter]`
     /// - methods that appear in a `#[pymethods]` block
-    pub fn fields(&'a self) -> impl Iterator<Item=&'a &'a FieldInfo<'a>> + 'a {
-        self.class.fields
-            .iter()
-            .chain(self.fields)
+    pub fn fields(&self) -> impl Iterator<Item = &FieldInfo<'static>> {
+        self.class.fields.iter().cloned().chain(self.fields.iter().cloned())
     }
 }
 
-pub trait InspectClass<'a> {
-    fn inspect() -> ClassInfo<'a>;
+pub trait InspectClass {
+    fn inspect() -> ClassInfo;
 }
 
-pub trait InspectStruct<'a> {
-    fn inspect_struct() -> &'a ClassStructInfo<'a>;
+pub trait InspectStruct {
+    fn inspect_struct() -> ClassStructInfo;
 }
 
-pub trait InspectImpl<'a> {
-    fn inspect_impl() -> &'a [&'a FieldInfo<'a>];
+pub trait InspectImpl {
+    fn inspect_impl() -> Vec<&'static FieldInfo<'static>>;
 }
 
-impl<'a, T> InspectClass<'a> for T
-    where T: InspectStruct<'a>, T: InspectImpl<'a>
+impl<T> InspectClass for T
+where
+    T: crate::PyClass,
 {
-    fn inspect() -> ClassInfo<'a> {
+    fn inspect() -> ClassInfo {
+        let name = <T as PyTypeInfo>::NAME;
+        let fields: Vec<&FieldInfo<'static>> = <T as PyClassImpl>::items_iter()
+            .flat_map(|item| item.field_infos.iter().cloned())
+            .collect();
+
         ClassInfo {
-            class: Self::inspect_struct(),
-            fields: Self::inspect_impl(),
+            class: ClassStructInfo {
+                name,
+                base: None,
+                fields: vec![],
+            },
+            fields,
         }
     }
 }
+
+// impl<'a, T> InspectClass<'a> for T
+//     where T: InspectStruct<'a>, T: InspectImpl<'a>
+// {
+//     fn inspect() -> ClassInfo<'a> {
+//         ClassInfo {
+//             class: Self::inspect_struct(),
+//             fields: Self::inspect_impl(),
+//         }
+//     }
+// }

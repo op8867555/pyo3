@@ -158,13 +158,13 @@ pub fn impl_methods(
 
     add_shared_proto_slots(ty, &mut proto_impls, implemented_proto_fragments);
 
-    let impl_info = generate_impl_inspection(ty, field_infos);
-    trait_impls.push(impl_info);
+    // let impl_info = generate_impl_inspection(ty, field_infos);
+    // trait_impls.push(impl_info);
 
     let krate = get_pyo3_crate(&options.krate);
 
     let items = match methods_type {
-        PyClassMethodsType::Specialization => impl_py_methods(ty, methods, proto_impls),
+        PyClassMethodsType::Specialization => impl_py_methods(ty, methods, proto_impls, field_infos),
         PyClassMethodsType::Inventory => submit_methods_inventory(ty, methods, proto_impls),
     };
 
@@ -217,7 +217,10 @@ fn impl_py_methods(
     ty: &syn::Type,
     methods: Vec<TokenStream>,
     proto_impls: Vec<TokenStream>,
+    field_infos: Vec<syn::Ident>,
 ) -> TokenStream {
+    let field_infos = field_infos.iter()
+        .map(|field| quote!(&#field));
     quote! {
         impl _pyo3::impl_::pyclass::PyMethods<#ty>
             for _pyo3::impl_::pyclass::PyClassImplCollector<#ty>
@@ -225,7 +228,8 @@ fn impl_py_methods(
             fn py_methods(self) -> &'static _pyo3::impl_::pyclass::PyClassItems {
                 static ITEMS: _pyo3::impl_::pyclass::PyClassItems = _pyo3::impl_::pyclass::PyClassItems {
                     methods: &[#(#methods),*],
-                    slots: &[#(#proto_impls),*]
+                    slots: &[#(#proto_impls),*],
+                    field_infos: &[#(#field_infos),*],
                 };
                 &ITEMS
             }

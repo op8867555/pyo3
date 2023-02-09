@@ -125,6 +125,8 @@ impl<T> Copy for PyClassImplCollector<T> {}
 pub struct PyClassItems {
     pub methods: &'static [PyMethodDefType],
     pub slots: &'static [ffi::PyType_Slot],
+    #[cfg(feature="experimental-inspect")]
+    pub field_infos: &'static [&'static crate::inspect::fields::FieldInfo<'static>],
 }
 
 // Allow PyClassItems in statics
@@ -831,6 +833,8 @@ impl<T> PyMethods<T> for &'_ PyClassImplCollector<T> {
         &PyClassItems {
             methods: &[],
             slots: &[],
+            #[cfg(feature="experimental-inspect")]
+            field_infos: &[],
         }
     }
 }

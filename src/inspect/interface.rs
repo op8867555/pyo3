@@ -8,12 +8,12 @@ use crate::inspect::fields::{ArgumentInfo, ArgumentKind, FieldInfo, FieldKind};
 ///
 /// Instances are created with [`InterfaceGenerator::new`].
 /// The documentation is generated via the [`Display`] implementation.
-pub struct InterfaceGenerator<'a> {
-    info: ClassInfo<'a>
+pub struct InterfaceGenerator {
+    info: ClassInfo,
 }
 
-impl<'a> InterfaceGenerator<'a> {
-    pub fn new(info: ClassInfo<'a>) -> Self {
+impl InterfaceGenerator {
+    pub fn new(info: ClassInfo) -> Self {
         Self {
             info
         }
@@ -130,7 +130,7 @@ impl<'a> InterfaceGenerator<'a> {
     }
 }
 
-impl<'a> Display for InterfaceGenerator<'a> {
+impl Display for InterfaceGenerator {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.class_header(f)?;
 
@@ -141,7 +141,7 @@ impl<'a> Display for InterfaceGenerator<'a> {
         }
 
         for field in self.info.fields() {
-            Self::field(*field, f)?;
+            Self::field(field, f)?;
         }
 
         Ok(())

@@ -12,6 +12,60 @@ use crate::pyclass::{FieldPyO3Options, get_class_python_name};
 use crate::PyClassArgs;
 use crate::pymethod::PyMethod;
 
+pub(crate) fn generate_class_fields(
+    cls: &Ident,
+    args: &PyClassArgs,
+    field_options: &Vec<(&syn::Field, FieldPyO3Options)>,
+) -> Vec<TokenStream> {
+    let ident_prefix = format_ident!("_path_{}", cls);
+    let class_field_info = format_ident!("{}_struct_field_info", ident_prefix);
+    let class_info = format_ident!("{}_struct_info", ident_prefix);
+
+    let name = Literal::string(&*get_class_python_name(cls, args).to_string());
+
+    let mut fields: Vec<TokenStream> = vec![];
+    for (field, options) in field_options {
+        let typ = generate_type(cls.to_string().as_str(), &field.ty)
+            .map(|it| Box::new(it) as Box<dyn ToTokens>)
+            .unwrap_or_else(|| Box::new(cls));
+        let name = options.name.as_ref()
+            .map(|it| Literal::string(&*it.value.0.to_string()))
+            .or_else(|| field.ident.as_ref().map(|it| Literal::string(&*it.to_string())));
+
+        if let Some(name) = name {
+            if options.get.is_some() {
+                fields.push(quote! {
+                    &_pyo3::inspect::fields::FieldInfo {
+                        name: #name,
+                        kind: _pyo3::inspect::fields::FieldKind::Getter,
+                        py_type: ::std::option::Option::Some(|| <#typ as _pyo3::inspect::types::WithTypeInfo>::type_output()),
+                        arguments: &[],
+                    }
+                });
+            }
+
+            if options.set.is_some() {
+                fields.push(quote! {
+                    &_pyo3::inspect::fields::FieldInfo {
+                        name: #name,
+                        kind: _pyo3::inspect::fields::FieldKind::Setter,
+                        py_type: ::std::option::Option::Some(|| _pyo3::inspect::types::TypeInfo::None),
+                        arguments: &[
+                            _pyo3::inspect::fields::ArgumentInfo {
+                                name: #name,
+                                kind: _pyo3::inspect::fields::ArgumentKind::Position,
+                                py_type: ::std::option::Option::Some(|| <#typ as _pyo3::inspect::types::WithTypeInfo>::type_output()),
+                                default_value: false,
+                                is_modified: false,
+                            }
+                        ],
+                    }
+                });
+            }
+        }
+    }
+    fields
+}
 /// Extracts inspection information from the `#[pyclass]` macro.
 ///
 /// Extracted information:
