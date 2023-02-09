@@ -4,13 +4,13 @@ use crate::{exceptions, PyErr};
 mod min_const_generics {
     use super::invalid_sequence_length;
     use crate::conversion::{AsPyPointer, IntoPyPointer};
+    #[cfg(feature = "experimental-inspect")]
+    use crate::inspect::types::{TypeInfo, WithTypeInfo};
     use crate::types::PySequence;
     use crate::{
         ffi, FromPyObject, IntoPy, Py, PyAny, PyDowncastError, PyObject, PyResult, Python,
         ToPyObject,
     };
-    #[cfg(feature = "experimental-inspect")]
-    use crate::inspect::types::TypeInfo;
 
     impl<T, const N: usize> IntoPy<PyObject> for [T; N]
     where
@@ -58,6 +58,20 @@ mod min_const_generics {
     {
         fn extract(obj: &'a PyAny) -> PyResult<Self> {
             create_array_from_obj(obj)
+        }
+    }
+
+    #[cfg(feature = "experimental-inspect")]
+    impl<const N: usize, T> WithTypeInfo for [T; N]
+    where
+        T: WithTypeInfo,
+    {
+        fn type_output() -> TypeInfo {
+            TypeInfo::sequence_of(T::type_output())
+        }
+
+        fn type_input() -> TypeInfo {
+            TypeInfo::sequence_of(T::type_input())
         }
     }
 
@@ -187,13 +201,14 @@ mod min_const_generics {
 mod array_impls {
     use super::invalid_sequence_length;
     use crate::conversion::{AsPyPointer, IntoPyPointer};
+    #[cfg(feature = "experimental-inspect")]
+    use crate::inspect::types::TypeInfo;
     use crate::types::PySequence;
     use crate::{
         ffi, FromPyObject, IntoPy, Py, PyAny, PyDowncastError, PyObject, PyResult, Python,
         ToPyObject,
     };
     use std::mem::{transmute_copy, ManuallyDrop};
-    use crate::inspect::types::TypeInfo;
 
     macro_rules! array_impls {
         ($($N:expr),+) => {
@@ -254,9 +269,6 @@ mod array_impls {
                         }
                     }
 
-                    fn type_output() -> TypeInfo {
-                        TypeInfo::List(Box::new(T::type_output()))
-                    }
                 }
 
                 impl<T> ToPyObject for [T; $N]
@@ -276,6 +288,13 @@ mod array_impls {
                         let mut array = [T::default(); $N];
                         extract_sequence_into_slice(obj, &mut array)?;
                         Ok(array)
+                    }
+                }
+
+                #[cfg(feature="experimental-inspect")]
+                impl<T> WithTypeInfo for [T;$N] {
+                    fn type_output() -> TypeInfo {
+                        TypeInfo::List(Box::new(T::type_output()))
                     }
 
                     fn type_input() -> TypeInfo {
