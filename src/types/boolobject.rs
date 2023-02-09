@@ -1,8 +1,8 @@
 // Copyright (c) 2017-present PyO3 Project and Contributors
 #[cfg(feature = "experimental-inspect")]
-use crate::inspect::types::TypeInfo;
+use crate::inspect::types::{WithTypeInfo, TypeInfo};
 use crate::{
-    ffi, AsPyPointer, FromPyObject, IntoPy, PyAny, PyObject, PyResult, Python, ToPyObject, inspect::types::WithTypeInfo,
+    ffi, AsPyPointer, FromPyObject, IntoPy, PyAny, PyObject, PyResult, Python, ToPyObject,
 };
 
 /// Represents a Python `bool`.

@@ -1,14 +1,15 @@
 use std::borrow::Cow;
 
 #[cfg(feature = "experimental-inspect")]
-use crate::inspect::types::TypeInfo;
+use crate::inspect::types::{WithTypeInfo, TypeInfo};
 use crate::{
-    inspect::types::WithTypeInfo, types::PyString, FromPyObject, IntoPy, Py, PyAny, PyObject,
+    types::PyString, FromPyObject, IntoPy, Py, PyAny, PyObject,
     PyResult, Python, ToPyObject,
 };
 
 macro_rules! with_typeinfo_impl {
     ($ty: ty) => {
+        #[cfg(feature = "experimental-inspect")]
         impl WithTypeInfo for $ty {
             fn type_input() -> TypeInfo {
                 TypeInfo::builtin("str")
@@ -19,6 +20,7 @@ macro_rules! with_typeinfo_impl {
         }
     };
     ($ty: ty, $param: tt) => {
+        #[cfg(feature = "experimental-inspect")]
         impl<$param> WithTypeInfo for & $param $ty {
             fn type_input() -> TypeInfo {
                 TypeInfo::builtin("str")

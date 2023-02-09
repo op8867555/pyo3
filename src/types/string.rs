@@ -7,8 +7,6 @@ use crate::{ffi, AsPyPointer, PyAny, PyResult, Python};
 use std::borrow::Cow;
 use std::os::raw::c_char;
 use std::str;
-#[cfg(feature = "experimental-inspect")]
-use crate::inspect::types::TypeInfo;
 
 /// Represents raw data backing a Python `str`.
 ///

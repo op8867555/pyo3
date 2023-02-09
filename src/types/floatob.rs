@@ -2,9 +2,9 @@
 //
 // based on Daniel Grunwald's https://github.com/dgrunwald/rust-cpython
 #[cfg(feature = "experimental-inspect")]
-use crate::inspect::types::TypeInfo;
+use crate::inspect::types::{WithTypeInfo, TypeInfo};
 use crate::{
-    ffi, AsPyPointer, FromPyObject, IntoPy, PyAny, PyErr, PyObject, PyResult, Python, ToPyObject, inspect::types::WithTypeInfo,
+    ffi, AsPyPointer, FromPyObject, IntoPy, PyAny, PyErr, PyObject, PyResult, Python, ToPyObject,
 };
 use std::os::raw::c_double;
 

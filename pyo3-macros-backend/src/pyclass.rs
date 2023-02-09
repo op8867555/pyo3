@@ -754,6 +754,8 @@ fn impl_pytypeinfo(
         // XXX: Not sure why blanket impl<T:PyTypeInfo> not working for pyclasses,
         // So I generate WithTypeInfo for them here
         use ::std::convert::From;
+
+        #[cfg(feature="experimental-inspect")]
         impl _pyo3::inspect::types::WithTypeInfo for #cls {
             fn type_output() -> _pyo3::inspect::types::TypeInfo  {
                 _pyo3::inspect::types::TypeInfo::Class {

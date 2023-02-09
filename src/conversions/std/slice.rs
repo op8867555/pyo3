@@ -1,7 +1,7 @@
 #[cfg(feature = "experimental-inspect")]
-use crate::inspect::types::TypeInfo;
+use crate::inspect::types::{WithTypeInfo, TypeInfo};
 use crate::{
-    inspect::types::WithTypeInfo, types::PyBytes, FromPyObject, IntoPy, PyAny, PyObject, PyResult,
+    types::PyBytes, FromPyObject, IntoPy, PyAny, PyObject, PyResult,
     Python, ToPyObject,
 };
 

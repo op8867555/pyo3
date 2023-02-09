@@ -1,9 +1,9 @@
 use std::{cmp, collections, hash};
 
 #[cfg(feature = "experimental-inspect")]
-use crate::inspect::types::TypeInfo;
+use crate::inspect::types::{WithTypeInfo, TypeInfo};
 use crate::{
-    inspect::types::WithTypeInfo, types::set::new_from_iter, types::PySet, FromPyObject, IntoPy,
+    types::set::new_from_iter, types::PySet, FromPyObject, IntoPy,
     PyAny, PyObject, PyResult, Python, ToPyObject,
 };
 
