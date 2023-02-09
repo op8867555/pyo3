@@ -58,6 +58,12 @@ where
 {
     fn inspect() -> ClassInfo {
         let name = <T as PyTypeInfo>::NAME;
+        let is_subclass = <T as PyClassImpl>::IS_SUBCLASS;
+        let base = if is_subclass {
+            Some(<<T as PyClassImpl>::BaseType as PyTypeInfo>::NAME)
+        } else {
+            None
+        };
         let fields: Vec<&FieldInfo<'static>> = <T as PyClassImpl>::items_iter()
             .flat_map(|item| item.field_infos.iter().cloned())
             .collect();
@@ -65,7 +71,7 @@ where
         ClassInfo {
             class: ClassStructInfo {
                 name,
-                base: None,
+                base,
                 fields: vec![],
             },
             fields,
