@@ -9,7 +9,7 @@ use crate::{
     pymethod::{self, is_proto_method, MethodAndMethodDef, MethodAndSlotDef},
     utils::get_pyo3_crate,
 };
-use proc_macro2::TokenStream;
+use proc_macro2::{TokenStream, Ident};
 use pymethod::GeneratedPyMethod;
 use quote::{format_ident, quote};
 use syn::{parse::{Parse, ParseStream}, spanned::Spanned, Result};
@@ -165,7 +165,7 @@ pub fn impl_methods(
 
     let items = match methods_type {
         PyClassMethodsType::Specialization => impl_py_methods(ty, methods, proto_impls, field_infos),
-        PyClassMethodsType::Inventory => submit_methods_inventory(ty, methods, proto_impls),
+        PyClassMethodsType::Inventory => submit_methods_inventory(ty, methods, proto_impls, field_infos),
     };
 
     Ok(quote! {
@@ -288,11 +288,13 @@ fn submit_methods_inventory(
     ty: &syn::Type,
     methods: Vec<TokenStream>,
     proto_impls: Vec<TokenStream>,
+    field_infos: Vec<Ident>,
 ) -> TokenStream {
+    let field_infos = field_infos.iter().map(|f| quote!{ & #f });
     quote! {
         _pyo3::inventory::submit! {
             type Inventory = <#ty as _pyo3::impl_::pyclass::PyClassImpl>::Inventory;
-            Inventory::new(_pyo3::impl_::pyclass::PyClassItems { methods: &[#(#methods),*], slots: &[#(#proto_impls),*] })
+            Inventory::new(_pyo3::impl_::pyclass::PyClassItems { methods: &[#(#methods),*], slots: &[#(#proto_impls),*], field_infos: &[#(#field_infos),*] })
         }
     }
 }
