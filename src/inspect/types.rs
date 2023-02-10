@@ -415,6 +415,9 @@ impl<T: WithTypeInfo> WithTypeInfo for crate::Py<T> {
     }
 }
 
+impl WithTypeInfo for crate::PyAny {
+}
+
 #[cfg(test)]
 mod test {
     use std::borrow::Cow;
