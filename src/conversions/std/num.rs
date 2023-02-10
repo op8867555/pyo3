@@ -1,5 +1,5 @@
 #[cfg(feature = "experimental-inspect")]
-use crate::inspect::types::{WithTypeInfo, TypeInfo};
+use crate::inspect::types::{WithTypeInfo, TypeInfo, Typed};
 use crate::{
     exceptions, ffi, AsPyPointer, FromPyObject, IntoPy, PyAny, PyErr, PyObject, PyResult, Python,
     ToPyObject,
@@ -34,13 +34,13 @@ macro_rules! int_fits_larger_int {
 
         }
         #[cfg(feature = "experimental-inspect")]
-        impl WithTypeInfo for $rust_type {
-            fn type_output() -> TypeInfo {
-                <$larger_type>::type_output()
+        impl WithTypeInfo for Typed<$rust_type> {
+            fn type_output(&self) -> TypeInfo {
+                Typed::<$larger_type>::new().type_output()
             }
 
-            fn type_input() -> TypeInfo {
-                <$larger_type>::type_input()
+            fn type_input(&self) -> TypeInfo {
+                Typed::<$larger_type>::new().type_input()
             }
         }
     };
@@ -77,14 +77,9 @@ macro_rules! int_convert_u64_or_i64 {
             }
        }
         #[cfg(feature = "experimental-inspect")]
-        impl WithTypeInfo for $rust_type {
-            fn type_output() -> TypeInfo {
+        impl WithTypeInfo for Typed<$rust_type> {
+            fn type_output(&self) -> TypeInfo {
                 TypeInfo::builtin("int")
-            }
-
-            #[cfg(feature = "experimental-inspect")]
-            fn type_input() -> TypeInfo {
-                Self::type_output()
             }
         }
     };
@@ -122,12 +117,9 @@ macro_rules! int_fits_c_long {
             }
         }
         #[cfg(feature = "experimental-inspect")]
-        impl WithTypeInfo for $rust_type {
-            fn type_output() -> TypeInfo {
+        impl WithTypeInfo for Typed<$rust_type> {
+            fn type_output(&self) -> TypeInfo {
                 TypeInfo::builtin("int")
-            }
-            fn type_input() -> TypeInfo {
-                Self::type_output()
             }
         }
 
@@ -220,12 +212,9 @@ mod fast_128bit_int_conversion {
             }
 
             #[cfg(feature = "experimental-inspect")]
-            impl WithTypeInfo for $rust_type {
-                fn type_output() -> TypeInfo {
+            impl WithTypeInfo for Typed<$rust_type> {
+                fn type_output(&self) -> TypeInfo {
                     TypeInfo::builtin("int")
-                }
-                fn type_input() -> TypeInfo {
-                    Self::type_output()
                 }
             }
         };
@@ -290,12 +279,9 @@ mod slow_128bit_int_conversion {
                 }
             }
             #[cfg(feature = "experimental-inspect")]
-            impl WithTypeInfo for $rust_type {
-                fn type_output() -> TypeInfo {
+            impl WithTypeInfo for Typed<$rust_type> {
+                fn type_output(&self) -> TypeInfo {
                     TypeInfo::builtin("int")
-                }
-                fn type_input() -> TypeInfo {
-                    Self::type_output()
                 }
             }
         };
@@ -343,9 +329,9 @@ macro_rules! nonzero_int_impl {
         }
 
         #[cfg(feature = "experimental-inspect")]
-        impl WithTypeInfo for $nonzero_type {
-            fn type_input() -> TypeInfo {
-                <$primitive_type>::type_input()
+        impl WithTypeInfo for Typed<$nonzero_type> {
+            fn type_input(&self) -> TypeInfo {
+                Typed::<$primitive_type>::new().type_input()
             }
         }
     };

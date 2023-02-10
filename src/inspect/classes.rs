@@ -36,7 +36,11 @@ impl ClassInfo {
     /// - struct attributes annotated with `#[getter]` or `#[setter]`
     /// - methods that appear in a `#[pymethods]` block
     pub fn fields(&self) -> impl Iterator<Item = &FieldInfo<'static>> {
-        self.class.fields.iter().cloned().chain(self.fields.iter().cloned())
+        self.class
+            .fields
+            .iter()
+            .cloned()
+            .chain(self.fields.iter().cloned())
     }
 }
 

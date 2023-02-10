@@ -1,5 +1,5 @@
 #[cfg(feature = "experimental-inspect")]
-use crate::inspect::types::{WithTypeInfo, TypeInfo};
+use crate::inspect::types::{WithTypeInfo, TypeInfo, Typed};
 use crate::types::list::new_from_iter;
 use crate::{IntoPy, PyObject, Python, ToPyObject};
 
@@ -35,13 +35,13 @@ where
 }
 
 #[cfg(feature = "experimental-inspect")]
-impl<T> WithTypeInfo for Vec<T>
-where T: WithTypeInfo {
-    fn type_input() -> TypeInfo {
-        TypeInfo::sequence_of(T::type_input())
+impl<T> WithTypeInfo for &Typed<Vec<T>>
+where Typed<T>: WithTypeInfo {
+    fn type_input(&self) -> TypeInfo {
+        TypeInfo::sequence_of((&&&Typed::<T>::new()).type_input())
     }
-    fn type_output() -> TypeInfo {
-        TypeInfo::list_of(T::type_output())
+    fn type_output(&self) -> TypeInfo {
+        TypeInfo::sequence_of((&&&Typed::<T>::new()).type_output())
     }
 }
 

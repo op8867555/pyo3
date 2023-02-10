@@ -2,6 +2,15 @@
 
 use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
+use std::marker::PhantomData;
+
+pub struct Typed<T>(PhantomData<T>);
+
+impl<T> Typed<T> {
+    pub fn new() -> Self {
+        Self(PhantomData)
+    }
+}
 
 pub trait WithTypeInfo {
     /// Extracts the type hint information for this type when it appears as a return value.
@@ -12,9 +21,9 @@ pub trait WithTypeInfo {
     /// For most types, the return value for this method will be identical to that of [`WithTypeInfo::type_input`].
     /// It may be different for some types, such as `Dict`, to allow duck-typing: functions return `Dict` but take `Mapping` as argument.
     #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        TypeInfo::Any
-   }
+    fn type_output(&self) -> TypeInfo {
+        self.type_input()
+    }
 
     /// Extracts the type hint information for this type when it appears as an argument.
     ///
@@ -24,12 +33,21 @@ pub trait WithTypeInfo {
     /// For most types, the return value for this method will be identical to that of [`WithTypeInfo::type_output`].
     /// It may be different for some types, such as `Dict`, to allow duck-typing: functions return `Dict` but take `Mapping` as argument.
     #[cfg(feature = "experimental-inspect")]
-    fn type_input() -> TypeInfo {
-        TypeInfo::Any
+    fn type_input(&self) -> TypeInfo {
+        self.type_output()
     }
- }
+}
 
-
+pub trait WithCustomTypeInfo{
+    #[cfg(feature = "experimental-inspect")]
+    fn type_output(&self) -> TypeInfo {
+        self.type_input()
+    }
+    #[cfg(feature = "experimental-inspect")]
+    fn type_input(&self) -> TypeInfo {
+        self.type_output()
+    }
+}
 
 /// Designation of a Python type.
 ///
@@ -314,19 +332,8 @@ impl Display for TypeInfo {
     }
 }
 
-impl<T: crate::type_object::PyTypeInfo> WithTypeInfo for &T {
-    fn type_input() -> TypeInfo {
-        TypeInfo::Class {
-            name: ::std::borrow::Cow::Borrowed(T::NAME),
-            module: T::MODULE
-                .map(Cow::from)
-                .map(ModuleName::Module)
-                .unwrap_or(ModuleName::CurrentModule),
-            type_vars: ::std::vec::Vec::new(),
-        }
-    }
-
-    fn type_output() -> TypeInfo {
+impl<T: crate::type_object::PyTypeInfo> WithTypeInfo for Typed<T> {
+    fn type_input(&self) -> TypeInfo {
         TypeInfo::Class {
             name: ::std::borrow::Cow::Borrowed(T::NAME),
             module: T::MODULE
@@ -338,42 +345,47 @@ impl<T: crate::type_object::PyTypeInfo> WithTypeInfo for &T {
     }
 }
 
-impl WithTypeInfo for crate::class::basic::CompareOp {
-    fn type_output() -> TypeInfo {
-        TypeInfo::Any
+impl<T> WithTypeInfo for &Typed<&T>
+where
+    Typed<T>: WithTypeInfo,
+{
+    fn type_input(&self) -> TypeInfo {
+        (&&Typed::<T>::new()).type_input()
     }
+    fn type_output(&self) -> TypeInfo {
+        (&&Typed::<T>::new()).type_output()
+    }
+}
 
-    fn type_input() -> TypeInfo {
+impl<T> WithTypeInfo for &&Typed<T>
+where
+    T: WithCustomTypeInfo,
+{
+    fn type_input(&self) -> TypeInfo {
+        todo!()
+    }
+    fn type_output(&self) -> TypeInfo {
+        todo!()
+    }
+}
+
+impl WithTypeInfo for Typed<crate::class::basic::CompareOp> {
+    fn type_input(&self) -> TypeInfo {
         TypeInfo::Any
     }
 }
 
-impl WithTypeInfo for () {
-    fn type_output() -> TypeInfo {
-        TypeInfo::None
-    }
-
-    fn type_input() -> TypeInfo {
+impl WithTypeInfo for Typed<()> {
+    fn type_output(&self) -> TypeInfo {
         TypeInfo::None
     }
 }
 
-impl<T> WithTypeInfo for crate::PyRef<'_, T>
+impl<T> WithTypeInfo for &Typed<crate::PyRef<'_, T>>
 where
     T: crate::PyClass,
 {
-    fn type_input() -> TypeInfo {
-        TypeInfo::Class {
-            name: ::std::borrow::Cow::Borrowed(T::NAME),
-            module: T::MODULE
-                .map(Cow::from)
-                .map(ModuleName::Module)
-                .unwrap_or(ModuleName::CurrentModule),
-            type_vars: ::std::vec::Vec::new(),
-        }
-    }
-
-    fn type_output() -> TypeInfo {
+    fn type_input(&self) -> TypeInfo {
         TypeInfo::Class {
             name: ::std::borrow::Cow::Borrowed(T::NAME),
             module: T::MODULE
@@ -385,37 +397,43 @@ where
     }
 }
 
-impl<T: WithTypeInfo> WithTypeInfo for Option<T> {
-    fn type_output() -> TypeInfo {
-        TypeInfo::Optional(Box::new(T::type_output()))
+impl<T> WithTypeInfo for &Typed<Option<T>>
+where
+    Typed<T>: WithTypeInfo,
+{
+    fn type_output(&self) -> TypeInfo {
+        TypeInfo::Optional(Box::new((&&Typed::<T>::new()).type_output()))
     }
 
-    fn type_input() -> TypeInfo {
-        TypeInfo::Optional(Box::new(T::type_input()))
-    }
-}
-
-impl<T: WithTypeInfo, E> WithTypeInfo for Result<T, E> {
-    fn type_output() -> TypeInfo {
-        T::type_output()
-    }
-
-    fn type_input() -> TypeInfo {
-        T::type_input()
+    fn type_input(&self) -> TypeInfo {
+        TypeInfo::Optional(Box::new((&&Typed::<T>::new()).type_input()))
     }
 }
 
-impl<T: WithTypeInfo> WithTypeInfo for crate::Py<T> {
-    fn type_output() -> TypeInfo {
-        T::type_output()
+impl<T, E> WithTypeInfo for &Typed<Result<T, E>>
+where
+    Typed<T>: WithTypeInfo,
+{
+    fn type_output(&self) -> TypeInfo {
+        (&&Typed::<T>::new()).type_output()
     }
 
-    fn type_input() -> TypeInfo {
-        T::type_input()
+    fn type_input(&self) -> TypeInfo {
+        (&&Typed::<T>::new()).type_input()
     }
 }
 
-impl WithTypeInfo for crate::PyAny {
+impl<T> WithTypeInfo for &Typed<crate::Py<T>>
+where
+    Typed<T>: WithTypeInfo,
+{
+    fn type_output(&self) -> TypeInfo {
+        (&&Typed::<T>::new()).type_output()
+    }
+
+    fn type_input(&self) -> TypeInfo {
+        (&&Typed::<T>::new()).type_input()
+    }
 }
 
 #[cfg(test)]

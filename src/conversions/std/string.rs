@@ -11,10 +11,7 @@ macro_rules! with_typeinfo_impl {
     ($ty: ty) => {
         #[cfg(feature = "experimental-inspect")]
         impl WithTypeInfo for $ty {
-            fn type_input() -> TypeInfo {
-                TypeInfo::builtin("str")
-            }
-            fn type_output() -> TypeInfo {
+            fn type_input(&self) -> TypeInfo {
                 TypeInfo::builtin("str")
             }
         }
@@ -22,10 +19,7 @@ macro_rules! with_typeinfo_impl {
     ($ty: ty, $param: tt) => {
         #[cfg(feature = "experimental-inspect")]
         impl<$param> WithTypeInfo for & $param $ty {
-            fn type_input() -> TypeInfo {
-                TypeInfo::builtin("str")
-            }
-            fn type_output() -> TypeInfo {
+            fn type_input(&self) -> TypeInfo {
                 TypeInfo::builtin("str")
             }
         }

@@ -235,8 +235,6 @@ mod impl_ {
 }
 
 pub use impl_::*;
-#[cfg(feature = "experimental-inspect")]
-use crate::inspect::types::TypeInfo;
 
 #[inline]
 pub(crate) fn new_from_iter<T: ToPyObject>(

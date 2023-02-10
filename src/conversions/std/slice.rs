@@ -1,5 +1,5 @@
 #[cfg(feature = "experimental-inspect")]
-use crate::inspect::types::{WithTypeInfo, TypeInfo};
+use crate::inspect::types::{WithTypeInfo, TypeInfo, Typed};
 use crate::{
     types::PyBytes, FromPyObject, IntoPy, PyAny, PyObject, PyResult,
     Python, ToPyObject,
@@ -18,12 +18,9 @@ impl<'a> FromPyObject<'a> for &'a [u8] {
 }
 
 #[cfg(feature = "experimental-inspect")]
-impl<'a> WithTypeInfo for &'a [u8] {
-    fn type_output() -> TypeInfo {
+impl<'a> WithTypeInfo for &Typed<&'a [u8]> {
+    fn type_output(&self) -> TypeInfo {
         TypeInfo::builtin("bytes")
-    }
-    fn type_input() -> TypeInfo {
-        Self::type_output()
     }
 }
 

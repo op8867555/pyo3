@@ -1,7 +1,7 @@
 use std::{cmp, collections, hash};
 
 #[cfg(feature = "experimental-inspect")]
-use crate::inspect::types::{WithTypeInfo, TypeInfo};
+use crate::inspect::types::{TypeInfo, Typed, WithTypeInfo};
 
 use crate::{
     types::{IntoPyDict, PyDict},
@@ -43,7 +43,6 @@ where
     }
 }
 
-
 impl<K, V> IntoPy<PyObject> for collections::BTreeMap<K, V>
 where
     K: cmp::Eq + IntoPy<PyObject>,
@@ -56,7 +55,6 @@ where
         IntoPyDict::into_py_dict(iter, py).into()
     }
 }
-
 
 impl<'source, K, V, S> FromPyObject<'source> for collections::HashMap<K, V, S>
 where
@@ -72,7 +70,6 @@ where
         }
         Ok(ret)
     }
-
 }
 
 impl<'source, K, V> FromPyObject<'source> for collections::BTreeMap<K, V>
@@ -91,33 +88,44 @@ where
 }
 
 #[cfg(feature = "experimental-inspect")]
-impl<K, V, H> WithTypeInfo for collections::HashMap<K, V, H>
+impl<K, V, H> WithTypeInfo for &Typed<collections::HashMap<K, V, H>>
 where
-    K: WithTypeInfo,
-    V: WithTypeInfo,
+    Typed<K>: WithTypeInfo,
+    Typed<V>: WithTypeInfo,
 {
-    fn type_output() -> TypeInfo {
-        TypeInfo::dict_of(K::type_output(), V::type_output())
+    fn type_output(&self) -> TypeInfo {
+        TypeInfo::dict_of(
+            (&&Typed::<K>::new()).type_output(),
+            (&&Typed::<V>::new()).type_output(),
+        )
     }
-    fn type_input() -> TypeInfo {
-        TypeInfo::mapping_of(K::type_input(), V::type_input())
+    fn type_input(&self) -> TypeInfo {
+        TypeInfo::mapping_of(
+            (&&Typed::<K>::new()).type_output(),
+            (&&Typed::<V>::new()).type_output(),
+        )
     }
 }
 
 #[cfg(feature = "experimental-inspect")]
 impl<K, V> WithTypeInfo for collections::BTreeMap<K, V>
 where
-    K: WithTypeInfo,
-    V: WithTypeInfo,
+    Typed<K>: WithTypeInfo,
+    Typed<V>: WithTypeInfo,
 {
-    fn type_output() -> TypeInfo {
-        TypeInfo::dict_of(K::type_output(), V::type_output())
+    fn type_output(&self) -> TypeInfo {
+        TypeInfo::dict_of(
+            (&&Typed::<K>::new()).type_output(),
+            (&&Typed::<V>::new()).type_output(),
+        )
     }
-    fn type_input() -> TypeInfo {
-        TypeInfo::mapping_of(K::type_input(), V::type_input())
+    fn type_input(&self) -> TypeInfo {
+        TypeInfo::mapping_of(
+            (&&Typed::<K>::new()).type_output(),
+            (&&Typed::<V>::new()).type_output(),
+        )
     }
 }
-
 
 #[cfg(test)]
 mod tests {

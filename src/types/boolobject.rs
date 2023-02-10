@@ -1,6 +1,6 @@
 // Copyright (c) 2017-present PyO3 Project and Contributors
 #[cfg(feature = "experimental-inspect")]
-use crate::inspect::types::{WithTypeInfo, TypeInfo};
+use crate::inspect::types::{WithTypeInfo, TypeInfo, Typed};
 use crate::{
     ffi, AsPyPointer, FromPyObject, IntoPy, PyAny, PyObject, PyResult, Python, ToPyObject,
 };
@@ -61,13 +61,9 @@ impl<'source> FromPyObject<'source> for bool {
 }
 
 #[cfg(feature = "experimental-inspect")]
-impl WithTypeInfo for bool {
-    fn type_output() -> TypeInfo {
+impl WithTypeInfo for Typed<bool> {
+    fn type_output(&self) -> TypeInfo {
         TypeInfo::builtin("bool")
-    }
-
-    fn type_input() -> TypeInfo {
-        Self::type_output()
     }
 }
 

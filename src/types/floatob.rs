@@ -2,7 +2,7 @@
 //
 // based on Daniel Grunwald's https://github.com/dgrunwald/rust-cpython
 #[cfg(feature = "experimental-inspect")]
-use crate::inspect::types::{WithTypeInfo, TypeInfo};
+use crate::inspect::types::{WithTypeInfo, TypeInfo, Typed};
 use crate::{
     ffi, AsPyPointer, FromPyObject, IntoPy, PyAny, PyErr, PyObject, PyResult, Python, ToPyObject,
 };
@@ -66,12 +66,9 @@ impl<'source> FromPyObject<'source> for f64 {
 }
 
 #[cfg(feature = "experimental-inspect")]
-impl WithTypeInfo for f64 {
-    fn type_output() -> TypeInfo {
+impl WithTypeInfo for Typed<f64> {
+    fn type_output(&self) -> TypeInfo {
         TypeInfo::builtin("float")
-    }
-    fn type_input() -> TypeInfo {
-        Self::type_output()
     }
 }
 
@@ -95,12 +92,9 @@ impl<'source> FromPyObject<'source> for f32 {
 }
 
 #[cfg(feature = "experimental-inspect")]
-impl WithTypeInfo for f32 {
-    fn type_output() -> TypeInfo {
+impl WithTypeInfo for Typed<f32> {
+    fn type_output(&self) -> TypeInfo {
         TypeInfo::builtin("float")
-    }
-    fn type_input() -> TypeInfo {
-        Self::type_output()
     }
 }
 

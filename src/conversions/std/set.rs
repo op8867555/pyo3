@@ -1,7 +1,7 @@
 use std::{cmp, collections, hash};
 
 #[cfg(feature = "experimental-inspect")]
-use crate::inspect::types::{WithTypeInfo, TypeInfo};
+use crate::inspect::types::{WithTypeInfo, TypeInfo, Typed};
 use crate::{
     types::set::new_from_iter, types::PySet, FromPyObject, IntoPy,
     PyAny, PyObject, PyResult, Python, ToPyObject,
@@ -43,17 +43,17 @@ where
 }
 
 #[cfg(feature = "experimental-inspect")]
-impl<K, S> WithTypeInfo for collections::HashSet<K, S>
+impl<K, S> WithTypeInfo for &Typed<collections::HashSet<K, S>>
 where
-    K: WithTypeInfo,
+    Typed<K>: WithTypeInfo,
 {
-    fn type_output() -> TypeInfo {
-        TypeInfo::set_of(K::type_output())
+    fn type_output(&self) -> TypeInfo {
+        TypeInfo::set_of((&&Typed::<K>::new()).type_output())
     }
 
     #[cfg(feature = "experimental-inspect")]
-    fn type_input() -> TypeInfo {
-        TypeInfo::set_of(K::type_input())
+    fn type_input(&self) -> TypeInfo {
+        TypeInfo::set_of((&&Typed::<K>::new()).type_input())
     }
 }
 
@@ -90,15 +90,17 @@ where
 }
 
 #[cfg(feature = "experimental-inspect")]
-impl<K> WithTypeInfo for collections::BTreeSet<K>
+impl<K> WithTypeInfo for &Typed<collections::BTreeSet<K>>
 where
-    K: WithTypeInfo,
+    Typed<K>: WithTypeInfo,
 {
-    fn type_output() -> TypeInfo {
-        TypeInfo::set_of(K::type_output())
+    fn type_output(&self) -> TypeInfo {
+        TypeInfo::set_of((&&Typed::<K>::new()).type_output())
     }
-    fn type_input() -> TypeInfo {
-        TypeInfo::set_of(K::type_input())
+
+    #[cfg(feature = "experimental-inspect")]
+    fn type_input(&self) -> TypeInfo {
+        TypeInfo::set_of((&&Typed::<K>::new()).type_input())
     }
 }
 

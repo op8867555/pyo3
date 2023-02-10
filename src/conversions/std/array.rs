@@ -5,7 +5,7 @@ mod min_const_generics {
     use super::invalid_sequence_length;
     use crate::conversion::{AsPyPointer, IntoPyPointer};
     #[cfg(feature = "experimental-inspect")]
-    use crate::inspect::types::{TypeInfo, WithTypeInfo};
+    use crate::inspect::types::{TypeInfo, WithTypeInfo, Typed};
     use crate::types::PySequence;
     use crate::{
         ffi, FromPyObject, IntoPy, Py, PyAny, PyDowncastError, PyObject, PyResult, Python,
@@ -64,14 +64,14 @@ mod min_const_generics {
     #[cfg(feature = "experimental-inspect")]
     impl<const N: usize, T> WithTypeInfo for [T; N]
     where
-        T: WithTypeInfo,
+        Typed<T>: WithTypeInfo,
     {
-        fn type_output() -> TypeInfo {
-            TypeInfo::sequence_of(T::type_output())
+        fn type_output(&self) -> TypeInfo {
+            TypeInfo::sequence_of((&&Typed::<T>::new()).type_output())
         }
 
-        fn type_input() -> TypeInfo {
-            TypeInfo::sequence_of(T::type_input())
+        fn type_input(&self) -> TypeInfo {
+            TypeInfo::sequence_of((&&Typed::<T>::new()).type_input())
         }
     }
 
