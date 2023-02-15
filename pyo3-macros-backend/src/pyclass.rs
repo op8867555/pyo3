@@ -7,6 +7,7 @@ use crate::attributes::{
     ModuleAttribute, NameAttribute, NameLitStr, TextSignatureAttribute,
 };
 use crate::deprecations::Deprecations;
+use crate::inspect::{generate_class_fields, generate_class_inspection};
 use crate::konst::{ConstAttributes, ConstSpec};
 use crate::method::FnSpec;
 use crate::pyfunction::text_signature_or_none;
@@ -23,7 +24,6 @@ use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::{parse_quote, spanned::Spanned, Result, Token};
-use crate::inspect::{generate_class_inspection, generate_class_fields};
 
 /// If the class is derived from a Rust `struct` or `enum`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -336,7 +336,10 @@ impl FieldPyO3Options {
     }
 }
 
-pub(crate) fn get_class_python_name<'a>(cls: &'a syn::Ident, args: &'a PyClassArgs) -> Cow<'a, syn::Ident> {
+pub(crate) fn get_class_python_name<'a>(
+    cls: &'a syn::Ident,
+    args: &'a PyClassArgs,
+) -> Cow<'a, syn::Ident> {
     args.options
         .name
         .as_ref()
@@ -616,13 +619,18 @@ fn impl_enum_class(
 
     let default_slots = vec![default_repr_slot, default_int_slot, default_richcmp_slot];
 
+    let field_infos = crate::inspect::generate_enum_fields(
+        repr_type,
+        &variants.iter().map(|c| c.ident.clone()).collect::<Vec<_>>(),
+    );
+
     let pyclass_impls = PyClassImplsBuilder::new(
         cls,
         args,
         methods_type,
         enum_default_methods(cls, variants.iter().map(|v| (v.ident, v.python_name()))),
         default_slots,
-        vec![],
+        field_infos,
     )
     .doc(doc)
     .impl_all()?;

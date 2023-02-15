@@ -12,6 +12,25 @@ use crate::pyclass::{FieldPyO3Options, get_class_python_name};
 use crate::PyClassArgs;
 use crate::pymethod::PyMethod;
 
+pub(crate) fn generate_enum_fields(
+    repr_type: &syn::Ident,
+    variants: &[Ident],
+) -> Vec<TokenStream> {
+    let mut fields: Vec<TokenStream> = vec![];
+    for variant in variants {
+        let name =  Literal::string(&*variant.to_string());
+        fields.push(quote! {
+            &_pyo3::inspect::fields::FieldInfo {
+                name: #name,
+                kind: _pyo3::inspect::fields::FieldKind::ClassAttribute,
+                py_type: ::std::option::Option::Some(|| <#repr_type as _pyo3::inspect::types::WithTypeInfo>::type_output()),
+                arguments: &[],
+            }
+        });
+    }
+    fields
+}
+
 pub(crate) fn generate_class_fields(
     cls: &Ident,
     args: &PyClassArgs,

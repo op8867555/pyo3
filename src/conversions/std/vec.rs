@@ -34,6 +34,7 @@ where
     }
 }
 
+
 #[cfg(feature = "experimental-inspect")]
 impl<T> WithTypeInfo for Vec<T>
 where T: WithTypeInfo {
